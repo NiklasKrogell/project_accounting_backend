@@ -1,5 +1,7 @@
 import express, { type Express } from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
+import cookieParser from 'cookie-parser';
 import morgan from 'morgan';
 import { env } from './config/env';
 import { routes } from './routes';
@@ -11,8 +13,12 @@ import { errorHandler } from './middleware/errorHandler';
 export function createApp(): Express {
   const app = express();
 
-  app.use(cors({ origin: env.CORS_ORIGIN }));
-  app.use(express.json());
+  app.use(helmet());
+  // credentials: true lets the browser send the httpOnly session cookie; the
+  // origin stays pinned to the UI, never '*'.
+  app.use(cors({ origin: env.CORS_ORIGIN, credentials: true }));
+  app.use(express.json({ limit: '100kb' }));
+  app.use(cookieParser());
   app.use(morgan(env.NODE_ENV === 'development' ? 'dev' : 'combined'));
 
   app.use(routes);

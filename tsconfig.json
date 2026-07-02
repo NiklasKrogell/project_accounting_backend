@@ -1,5 +1,10 @@
 {
   // Visit https://aka.ms/tsconfig to read more about this file
+  // Load all files from "include" at startup so ambient declarations
+  // (src/types/express.d.ts) are seen by ts-node, matching tsc behavior.
+  "ts-node": {
+    "files": true
+  },
   "compilerOptions": {
     // File Layout
     "rootDir": "src",
