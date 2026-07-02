@@ -1,0 +1,13 @@
+// users models
+model User {
+  id        String   @id @default(uuid())
+  firstName String
+  lastName  String
+  email     String   @unique
+  password_hash  String
+  phone     String?
+  // Role
+  lastLogged DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

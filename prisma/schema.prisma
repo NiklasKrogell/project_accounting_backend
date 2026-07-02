@@ -12,11 +12,3 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
-
-model Project {
-  id        String   @id @default(uuid())
-  name      String
-  code      String   @unique
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
