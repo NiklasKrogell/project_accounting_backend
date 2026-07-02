@@ -1,0 +1,26 @@
+// users models
+model User {
+  id              String    @id @default(uuid())
+  firstName       String
+  lastName        String
+  email           String    @unique
+  password_hash   String
+  phone           String?
+  emailVerifiedAt DateTime?
+  lastLogged      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // A user can belong to multiple companies; role/isAdmin live on the
+  // CompanyUser membership (per-company facts, not global user facts).
+  memberships CompanyUser[]
+  sessions    Session[]
+  tokens      VerificationToken[]
+}
+
+enum Role {
+  VIEWER
+  LEDGER
+  ACCOUNTANT
+  ADMIN
+}

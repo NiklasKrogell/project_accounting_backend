@@ -6,7 +6,7 @@ import { defineConfig, env } from 'prisma/config';
 // application runtime connects separately via the pg driver adapter in
 // src/lib/prisma.ts.
 export default defineConfig({
-  schema: 'prisma/schema.prisma',
+  schema: 'prisma/',
   migrations: {
     path: 'prisma/migrations',
   },

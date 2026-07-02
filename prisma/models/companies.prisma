@@ -1,0 +1,33 @@
+// companies models
+
+model Company {
+  id                 String             @id @default(uuid())
+  name               String
+  subscriptionStatus SubscriptionStatus @default(PENDING_PAYMENT)
+  subscriptionEndsAt DateTime? // manual activation sets this; Stripe will manage it later
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  members            CompanyUser[]
+}
+
+// Membership of a user in a company. Role and admin rights are per-company:
+// the same user can be ADMIN in their own company and VIEWER in a client's.
+model CompanyUser {
+  userId    String
+  companyId String
+  role      Role     @default(VIEWER) // accounting access level within this company
+  isAdmin   Boolean  @default(false) // company administrator (employees/billing)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@id([userId, companyId])
+  @@index([companyId])
+}
+
+enum SubscriptionStatus {
+  PENDING_PAYMENT
+  ACTIVE
+  PAST_DUE
+  CANCELED
+}
