@@ -6,9 +6,16 @@ model User {
   email     String   @unique
   password_hash  String
   phone     String?
-  // Role
+  Role      Role     @default(VIEWER)
   lastLogged DateTime?
   isAdmin   Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+enum Role {
+  VIEWER
+  LEDGER
+  ACCOUNTANT
+  ADMIN
 }
