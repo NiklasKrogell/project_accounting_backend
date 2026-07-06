@@ -1,0 +1,102 @@
+// All the accounting models are defined here. 
+//This includes models for journal entries, financial statements, and related entities. 
+// Each model is designed to capture the necessary details for accounting purposes, 
+// ensuring accurate record-keeping and reporting.
+
+enum VoucherType {
+  SALES
+  PURCHASE
+  PAYMENT
+  EXPENSE
+  WAGE
+  MEMOVOUCHER
+}
+
+// Pääryhmä: tuloslaskelman ja taseen ylin jako. Kiinteä jokaisessa tilikartassa.
+enum AccountMainGroup {
+  INCOME // Tulotilit (tuloslaskelma)
+  EXPENSE // Menotilit (tuloslaskelma)
+  ASSETS // Vastaavaa (tase)
+  LIABILITIES_AND_EQUITY // Vastattavaa (tase)
+}
+
+enum AccountMainClass {
+  // Tulotilit
+  REVENUE // Liikevaihto
+
+  // Menotilit
+  MATERIALS_AND_SERVICES // Materiaalit ja palvelut
+  PERSONNEL_EXPENSES // Henkilöstökulut
+  DEPRECIATION // Poistot ja arvonalentumiset
+  OTHER_OPERATING_EXPENSES // Liiketoiminnan muut kulut
+  FINANCIAL_INCOME_AND_EXPENSES // Rahoitustuotot ja -kulut
+  APPROPRIATIONS_AND_TAXES // Tilinpäätössiirrot ja verot
+
+  // Vastaavaa (tase)
+  FIXED_ASSETS // Pysyvät vastaavat
+  CURRENT_ASSETS // Vaihtuvat vastaavat
+
+  // Vastattavaa (tase)
+  EQUITY // Oma pääoma
+  PROVISIONS // Pakolliset varaukset
+  LIABILITIES // Vieras pääoma
+}
+
+model AccountGroup {
+  id        String           @id @default(uuid())
+  name      String
+  mainClass AccountMainClass
+  companyId String
+  company   Company          @relation(fields: [companyId], references: [id])
+  accounts  Account[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, name])
+  @@index([companyId])
+}
+
+model Account {
+  id             String             @id @default(uuid())
+  number         String             @unique
+  name           String
+  balance        Float
+  companyId      String
+  company        Company            @relation(fields: [companyId], references: [id])
+  accountGroupId String?
+  accountGroup   AccountGroup?      @relation(fields: [accountGroupId], references: [id])
+  journalEntries JournalEntry[]
+  lines          JournalEntryLine[]
+}
+
+model JournalEntry {
+  id            String             @id @default(uuid())
+  voucherType   VoucherType
+  voucherNumber String
+  date          DateTime
+  description   String
+  lines         JournalEntryLine[]
+  accountId     String
+  account       Account            @relation(fields: [accountId], references: [id])
+  companyId     String
+  company       Company            @relation(fields: [companyId], references: [id])
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id])
+}
+
+model JournalEntryLine {
+  id             String       @id @default(uuid())
+  accountId      String
+  account        Account      @relation(fields: [accountId], references: [id])
+  amount         Float
+  description    String
+  vatRate        Float
+  vatAmount      Float
+  type           String // "debit" or "credit"
+  journalEntryId String
+  journalEntry   JournalEntry @relation(fields: [journalEntryId], references: [id])
+}
