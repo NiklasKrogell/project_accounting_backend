@@ -12,14 +12,8 @@ enum VoucherType {
   MEMOVOUCHER
 }
 
-// Pääryhmä: tuloslaskelman ja taseen ylin jako. Kiinteä jokaisessa tilikartassa.
-enum AccountMainGroup {
-  INCOME // Tulotilit (tuloslaskelma)
-  EXPENSE // Menotilit (tuloslaskelma)
-  ASSETS // Vastaavaa (tase)
-  LIABILITIES_AND_EQUITY // Vastattavaa (tase)
-}
-
+// Pääluokan pääryhmä (tulotilit/menotilit/vastaavaa/vastattavaa) johdetaan
+// sovelluskoodissa mainClass-arvosta, ei tallenneta erikseen tähän skeemaan.
 enum AccountMainClass {
   // Tulotilit
   REVENUE // Liikevaihto
@@ -68,6 +62,24 @@ model Account {
   accountGroup   AccountGroup?      @relation(fields: [accountGroupId], references: [id])
   journalEntries JournalEntry[]
   lines          JournalEntryLine[]
+
+  bankAccounts BankAccount[]
+}
+
+model BankAccount {
+    id        String    @id @default(uuid())
+    name      String
+    iban      String    @unique
+    balance   Float
+    companyId String
+    company   Company   @relation(fields: [companyId], references: [id])
+    accountId String
+    account   Account   @relation(fields: [accountId], references: [id])
+    
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+    
+    @@unique([companyId, iban, accountId])
 }
 
 model JournalEntry {
@@ -82,8 +94,28 @@ model JournalEntry {
   companyId     String
   company       Company            @relation(fields: [companyId], references: [id])
 
+  attachments Attachment[]
+
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id])
+}
+
+// Tositteen liite (lasku, kuitti tms.). Itse tiedosto tallennetaan
+// objektivarastoon; tänne vain metadata ja viittaus (storageKey).
+model Attachment {
+  id             String       @id @default(uuid())
+  fileName       String // alkuperäinen tiedostonimi
+  mimeType       String // esim. "application/pdf", "image/jpeg"
+  fileSize       Int // tiedoston koko tavuina
+  storageKey     String       @unique // avain/polku objektivarastossa
+  journalEntryId String
+  journalEntry   JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  companyId      String
+  company        Company      @relation(fields: [companyId], references: [id])
+
+  createdAt   DateTime @default(now())
   createdById String
   createdBy   User     @relation(fields: [createdById], references: [id])
 }

@@ -11,6 +11,8 @@ model Company {
   accountGroups      AccountGroup[]
   accounts           Account[]
   journalEntries     JournalEntry[]
+  bankAccounts       BankAccount[]
+  attachments        Attachment[]
 }
 
 // Membership of a user in a company. Role and admin rights are per-company:
