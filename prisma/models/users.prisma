@@ -17,6 +17,7 @@ model User {
   sessions       Session[]
   tokens         VerificationToken[]
   journalEntries JournalEntry[]
+  attachments    Attachment[]
 }
 
 enum Role {
