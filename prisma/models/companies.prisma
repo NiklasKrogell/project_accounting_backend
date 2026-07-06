@@ -8,6 +8,9 @@ model Company {
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
   members            CompanyUser[]
+  accountGroups      AccountGroup[]
+  accounts           Account[]
+  journalEntries     JournalEntry[]
 }
 
 // Membership of a user in a company. Role and admin rights are per-company:

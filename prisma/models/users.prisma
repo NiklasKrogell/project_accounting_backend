@@ -13,9 +13,10 @@ model User {
 
   // A user can belong to multiple companies; role/isAdmin live on the
   // CompanyUser membership (per-company facts, not global user facts).
-  memberships CompanyUser[]
-  sessions    Session[]
-  tokens      VerificationToken[]
+  memberships    CompanyUser[]
+  sessions       Session[]
+  tokens         VerificationToken[]
+  journalEntries JournalEntry[]
 }
 
 enum Role {
