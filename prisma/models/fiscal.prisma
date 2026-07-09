@@ -1,0 +1,65 @@
+// Tilikaudet ja kirjanpitokaudet (ALV-kaudet).
+//
+// startDate/endDate ovat inklusiivisia kalenteripäiviä (DATE-sarakkeita);
+// Prisma lukee ne UTC-keskiyön DateTime-arvoina — ks. src/lib/dateOnly.ts.
+// Kirjaus voidaan tehdä vain päivälle, jota kattaa AVOIN tilikausi JA AVOIN
+// kirjanpitokausi (ks. src/services/fiscal-guard.service.ts).
+//
+// Saman yrityksen tilikaudet eivät saa mennä päällekkäin. Sovellustason
+// tarkistuksen lisäksi migraatiossa on GiST EXCLUDE -rajoite
+// ("FiscalYear_no_overlap") DB-tason takuuna.
+
+enum FiscalYearStatus {
+  OPEN
+  CLOSED
+}
+
+enum AccountingPeriodStatus {
+  OPEN
+  CLOSED
+}
+
+// Kirjanpitokausien jaksotus tilikauden sisällä, valitaan tilikautta luodessa.
+enum PeriodGranularity {
+  MONTH
+  QUARTER
+}
+
+model FiscalYear {
+  id          String             @id @default(uuid())
+  companyId   String
+  company     Company            @relation(fields: [companyId], references: [id])
+  startDate   DateTime           @db.Date
+  endDate     DateTime           @db.Date // inklusiivinen
+  status      FiscalYearStatus   @default(OPEN)
+  granularity PeriodGranularity
+  closedAt    DateTime?
+  periods     AccountingPeriod[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, startDate])
+  @@index([companyId, startDate, endDate])
+}
+
+model AccountingPeriod {
+  id           String     @id @default(uuid())
+  fiscalYearId String
+  fiscalYear   FiscalYear @relation(fields: [fiscalYearId], references: [id], onDelete: Cascade)
+  // Denormalisoitu tilikaudesta: kirjausguard hakee päivän kauden yhdellä
+  // indeksoidulla kyselyllä ilman jointia.
+  companyId    String
+  company      Company    @relation(fields: [companyId], references: [id])
+  index        Int // 1-alkuinen järjestysnumero tilikauden sisällä
+  startDate    DateTime   @db.Date
+  endDate      DateTime   @db.Date // inklusiivinen
+  status       AccountingPeriodStatus @default(OPEN)
+  closedAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([fiscalYearId, index])
+  @@index([companyId, startDate, endDate])
+}

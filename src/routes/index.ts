@@ -3,6 +3,8 @@ import type { Request, Response } from 'express';
 import { healthRoutes } from './health.routes';
 import { authRoutes } from './auth.routes';
 import { companyRoutes } from './company.routes';
+import { fiscalYearRoutes } from './fiscal-year.routes';
+import { accountingPeriodRoutes } from './accounting-period.routes';
 import { requireAuth } from '../middleware/requireAuth';
 import { requireActiveSubscription } from '../middleware/requireActiveSubscription';
 
@@ -28,5 +30,8 @@ gated.get('/ping', (req: Request, res: Response) => {
     data: { ok: true, companyId: membership.companyId, role: membership.role },
   });
 });
+
+gated.use('/fiscal-years', fiscalYearRoutes);
+gated.use('/accounting-periods', accountingPeriodRoutes);
 
 routes.use('/api', gated);
