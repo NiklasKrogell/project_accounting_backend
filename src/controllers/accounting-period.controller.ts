@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { accountingPeriodService } from '../services/accounting-period.service';
-import { idParamsSchema, serializeAccountingPeriod } from './fiscal-year.controller';
+import { idParamsSchema } from '../lib/apiSchemas';
+import { serializeAccountingPeriod } from './fiscal-year.controller';
 
 export const accountingPeriodController = {
   async close(req: Request, res: Response) {

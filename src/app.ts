@@ -19,7 +19,10 @@ export function createApp(): Express {
   app.use(cors({ origin: env.CORS_ORIGIN, credentials: true }));
   app.use(express.json({ limit: '100kb' }));
   app.use(cookieParser());
-  app.use(morgan(env.NODE_ENV === 'development' ? 'dev' : 'combined'));
+  // No request logging in tests to keep test output readable.
+  if (env.NODE_ENV !== 'test') {
+    app.use(morgan(env.NODE_ENV === 'development' ? 'dev' : 'combined'));
+  }
 
   app.use(routes);
 

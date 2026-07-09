@@ -2,29 +2,14 @@ import type { Request, Response } from 'express';
 import { z } from 'zod';
 import type { AccountingPeriod, FiscalYear } from '../generated/prisma/client';
 import { fiscalYearService } from '../services/fiscal-year.service';
-import { formatDateOnly, parseDateOnly } from '../lib/dateOnly';
-
-// Accounting dates travel through the API as 'YYYY-MM-DD' strings; see
-// src/lib/dateOnly.ts for the semantics.
-export const dateOnlySchema = z
-  .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected a YYYY-MM-DD date')
-  .transform((value, ctx) => {
-    try {
-      return parseDateOnly(value);
-    } catch {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Invalid calendar date' });
-      return z.NEVER;
-    }
-  });
+import { formatDateOnly } from '../lib/dateOnly';
+import { dateOnlySchema, idParamsSchema } from '../lib/apiSchemas';
 
 const createFiscalYearSchema = z.object({
   startDate: dateOnlySchema,
   endDate: dateOnlySchema,
   granularity: z.enum(['MONTH', 'QUARTER']),
 });
-
-export const idParamsSchema = z.object({ id: z.string().uuid() });
 
 export function serializeAccountingPeriod(period: AccountingPeriod) {
   return {

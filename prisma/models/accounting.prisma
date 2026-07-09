@@ -85,7 +85,10 @@ model BankAccount {
 model JournalEntry {
   id            String             @id @default(uuid())
   voucherType   VoucherType
-  voucherNumber String
+  // Juokseva tositenumero yrityksen ja tositelajin sisällä; allokoidaan
+  // VoucherCounter-laskurista kirjausta luodessa, ei käyttäjän antama.
+  voucherNumber Int
+  // Kirjauspäivä; normalisoidaan UTC-keskiyöhön kirjoitettaessa (dateOnly.ts).
   date          DateTime
   description   String
   lines         JournalEntryLine[]
@@ -100,6 +103,21 @@ model JournalEntry {
   updatedAt   DateTime @updatedAt
   createdById String
   createdBy   User     @relation(fields: [createdById], references: [id])
+
+  @@unique([companyId, voucherType, voucherNumber])
+  @@index([companyId, date])
+}
+
+// Tositenumerosarjan laskuri per yritys ja tositelaji. Atominen upsert
+// (INSERT ... ON CONFLICT DO UPDATE) sarjallistaa rinnakkaiset allokoinnit
+// rivilukolla, eikä numeroita käytetä uudelleen vaikka kirjaus poistettaisiin.
+model VoucherCounter {
+  companyId   String
+  company     Company     @relation(fields: [companyId], references: [id])
+  voucherType VoucherType
+  nextNumber  Int         @default(1)
+
+  @@id([companyId, voucherType])
 }
 
 // Tositteen liite (lasku, kuitti tms.). Itse tiedosto tallennetaan

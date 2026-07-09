@@ -15,6 +15,7 @@ model Company {
   attachments        Attachment[]
   fiscalYears        FiscalYear[]
   accountingPeriods  AccountingPeriod[]
+  voucherCounters    VoucherCounter[]
 }
 
 // Membership of a user in a company. Role and admin rights are per-company:
