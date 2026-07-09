@@ -1,5 +1,5 @@
 node_modules/
-lib/
+/lib/
 .env
 
 # Prisma 7 generates the client into the source tree; regenerated via postinstall.
