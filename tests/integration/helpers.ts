@@ -58,13 +58,12 @@ export async function addMember(companyId: string, role: Role) {
   return { user, cookie: `session=${token}` };
 }
 
-// Account.number is globally unique in the schema, so randomize it.
+// Account numbers are unique per company; randomize to avoid collisions.
 export async function createAccount(companyId: string, name: string) {
   return prisma.account.create({
     data: {
       number: String(Math.floor(Math.random() * 900_000_000) + 100_000_000),
       name,
-      balance: 0,
       companyId,
     },
   });

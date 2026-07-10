@@ -18,3 +18,20 @@ export const dateOnlySchema = z
   });
 
 export const idParamsSchema = z.object({ id: z.string().uuid() });
+
+// Mirrors the AccountMainClass Prisma enum; kept here so controllers validate
+// against it without importing the generated client.
+export const mainClassSchema = z.enum([
+  'REVENUE',
+  'MATERIALS_AND_SERVICES',
+  'PERSONNEL_EXPENSES',
+  'DEPRECIATION',
+  'OTHER_OPERATING_EXPENSES',
+  'FINANCIAL_INCOME_AND_EXPENSES',
+  'APPROPRIATIONS_AND_TAXES',
+  'FIXED_ASSETS',
+  'CURRENT_ASSETS',
+  'EQUITY',
+  'PROVISIONS',
+  'LIABILITIES',
+]);

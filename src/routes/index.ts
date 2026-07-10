@@ -6,6 +6,10 @@ import { companyRoutes } from './company.routes';
 import { fiscalYearRoutes } from './fiscal-year.routes';
 import { accountingPeriodRoutes } from './accounting-period.routes';
 import { journalEntryRoutes } from './journal-entry.routes';
+import { accountGroupRoutes } from './account-group.routes';
+import { accountRoutes } from './account.routes';
+import { bankAccountRoutes } from './bank-account.routes';
+import { chartOfAccountsRoutes } from './chart-of-accounts.routes';
 import { requireAuth } from '../middleware/requireAuth';
 import { requireActiveSubscription } from '../middleware/requireActiveSubscription';
 
@@ -35,5 +39,9 @@ gated.get('/ping', (req: Request, res: Response) => {
 gated.use('/fiscal-years', fiscalYearRoutes);
 gated.use('/accounting-periods', accountingPeriodRoutes);
 gated.use('/journal-entries', journalEntryRoutes);
+gated.use('/chart-of-accounts', chartOfAccountsRoutes);
+gated.use('/account-groups', accountGroupRoutes);
+gated.use('/accounts', accountRoutes);
+gated.use('/bank-accounts', bankAccountRoutes);
 
 routes.use('/api', gated);

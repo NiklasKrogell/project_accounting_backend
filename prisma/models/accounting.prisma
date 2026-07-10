@@ -53,9 +53,11 @@ model AccountGroup {
 
 model Account {
   id             String             @id @default(uuid())
-  number         String             @unique
+  // Tilinumero on uniikki yrityksen sisällä (ei globaalisti): kahdella
+  // yrityksellä voi olla oma tili 1900. Saldoa ei säilytetä kentässä, vaan se
+  // johdetaan kirjausriveistä raportoinnissa.
+  number         String
   name           String
-  balance        Float
   companyId      String
   company        Company            @relation(fields: [companyId], references: [id])
   accountGroupId String?
@@ -64,22 +66,29 @@ model Account {
   lines          JournalEntryLine[]
 
   bankAccounts BankAccount[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, number])
+  @@index([companyId])
 }
 
 model BankAccount {
     id        String    @id @default(uuid())
     name      String
-    iban      String    @unique
-    balance   Float
+    // Yksi IBAN per yritys, kuvattuna yhteen kirjanpitotiliin.
+    iban      String
     companyId String
     company   Company   @relation(fields: [companyId], references: [id])
     accountId String
     account   Account   @relation(fields: [accountId], references: [id])
-    
+
     createdAt DateTime @default(now())
     updatedAt DateTime @updatedAt
-    
-    @@unique([companyId, iban, accountId])
+
+    @@unique([companyId, iban])
+    @@index([companyId])
 }
 
 model JournalEntry {
