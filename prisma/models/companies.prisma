@@ -3,6 +3,12 @@
 model Company {
   id                 String             @id @default(uuid())
   name               String
+  businessId           String             @unique
+  billingEmail       String
+  billingAddress     String
+  billingCity        String
+  billingPostalCode  String
+  billingCountry     String
   subscriptionStatus SubscriptionStatus @default(PENDING_PAYMENT)
   subscriptionEndsAt DateTime? // manual activation sets this; Stripe will manage it later
   createdAt          DateTime           @default(now())
