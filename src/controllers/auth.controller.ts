@@ -14,6 +14,12 @@ const signupSchema = z.object({
   firstName: z.string().trim().min(1),
   lastName: z.string().trim().min(1),
   companyName: z.string().trim().min(1),
+  businessId: z.string().trim().min(1),
+  billingEmail: z.string().trim().email(),
+  billingAddress: z.string().trim().min(1),
+  billingCity: z.string().trim().min(1),
+  billingPostalCode: z.string().trim().min(1),
+  billingCountry: z.string().trim().min(1),
   phone: z.string().trim().min(1).optional(),
 });
 

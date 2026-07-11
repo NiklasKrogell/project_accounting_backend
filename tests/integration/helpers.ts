@@ -7,7 +7,16 @@ import { prisma } from '../../src/lib/prisma';
 export async function createTestContext(role: Role = 'ADMIN') {
   const suffix = randomUUID().slice(0, 8);
   const company = await prisma.company.create({
-    data: { name: `Test Co ${suffix}`, subscriptionStatus: 'ACTIVE' },
+    data: {
+      name: `Test Co ${suffix}`,
+      subscriptionStatus: 'ACTIVE',
+      businessId: `test-${suffix}`,
+      billingEmail: `billing-${suffix}@example.com`,
+      billingAddress: 'Test Address 1',
+      billingCity: 'Testville',
+      billingPostalCode: '00000',
+      billingCountry: 'Finland',
+    },
   });
   const user = await prisma.user.create({
     data: {

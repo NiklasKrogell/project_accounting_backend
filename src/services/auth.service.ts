@@ -32,6 +32,12 @@ export interface SignupInput {
   firstName: string;
   lastName: string;
   companyName: string;
+  businessId: string;
+  billingEmail: string;
+  billingAddress: string;
+  billingCity: string;
+  billingPostalCode: string;
+  billingCountry: string;
   phone?: string | undefined;
 }
 
@@ -56,7 +62,15 @@ export const authService = {
         },
       });
       const company = await tx.company.create({
-        data: { name: input.companyName }, // subscriptionStatus defaults to PENDING_PAYMENT
+        data: {
+          name: input.companyName,
+          businessId: input.businessId,
+          billingEmail: input.billingEmail,
+          billingAddress: input.billingAddress,
+          billingCity: input.billingCity,
+          billingPostalCode: input.billingPostalCode,
+          billingCountry: input.billingCountry,
+        }, // subscriptionStatus defaults to PENDING_PAYMENT
       });
       await tx.companyUser.create({
         data: { userId: user.id, companyId: company.id, role: 'ADMIN', isAdmin: true },
