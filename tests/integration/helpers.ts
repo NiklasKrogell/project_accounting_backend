@@ -18,6 +18,7 @@ export async function createTestContext(role: Role = 'ADMIN') {
       billingCountry: 'Finland',
     },
   });
+  await prisma.chartOfAccounts.create({ data: { companyId: company.id } });
   const user = await prisma.user.create({
     data: {
       firstName: 'Test',
@@ -69,11 +70,13 @@ export async function addMember(companyId: string, role: Role) {
 
 // Account numbers are unique per company; randomize to avoid collisions.
 export async function createAccount(companyId: string, name: string) {
+  const chart = await prisma.chartOfAccounts.findUniqueOrThrow({ where: { companyId } });
   return prisma.account.create({
     data: {
       number: String(Math.floor(Math.random() * 900_000_000) + 100_000_000),
       name,
       companyId,
+      chartOfAccountsId: chart.id,
     },
   });
 }

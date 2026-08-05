@@ -1,6 +1,18 @@
+import type { Prisma } from '../generated/prisma/client';
 import { prisma } from '../lib/prisma';
 import { AppError } from '../lib/AppError';
 import { DEFAULT_CHART_OF_ACCOUNTS } from '../lib/defaultChartOfAccounts';
+
+// Every company has exactly one ChartOfAccounts row (created alongside the
+// company); AccountGroup/Account rows reference it via chartOfAccountsId.
+export async function getChartOfAccountsId(
+  companyId: string,
+  client: Prisma.TransactionClient = prisma,
+): Promise<string> {
+  const chart = await client.chartOfAccounts.findUnique({ where: { companyId } });
+  if (!chart) throw AppError.notFound('Chart of accounts not found for this company');
+  return chart.id;
+}
 
 export const chartOfAccountsService = {
   // Seeds the curated Finnish standard chart for a company that has none yet.
@@ -16,13 +28,16 @@ export const chartOfAccountsService = {
         throw AppError.conflict('Chart of accounts is already initialized');
       }
 
+      const chartOfAccountsId = await getChartOfAccountsId(companyId, tx);
+
       for (const group of DEFAULT_CHART_OF_ACCOUNTS) {
         const created = await tx.accountGroup.create({
-          data: { companyId, name: group.name, mainClass: group.mainClass },
+          data: { companyId, chartOfAccountsId, name: group.name, mainClass: group.mainClass },
         });
         await tx.account.createMany({
           data: group.accounts.map((account) => ({
             companyId,
+            chartOfAccountsId,
             number: account.number,
             name: account.name,
             accountGroupId: created.id,

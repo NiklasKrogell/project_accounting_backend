@@ -1,6 +1,7 @@
 import type { AccountMainClass } from '../generated/prisma/client';
 import { prisma } from '../lib/prisma';
 import { AppError } from '../lib/AppError';
+import { getChartOfAccountsId } from './chart-of-accounts.service';
 
 const accountsByNumber = { accounts: { orderBy: { number: 'asc' as const } } };
 
@@ -12,8 +13,9 @@ export interface AccountGroupInput {
 export const accountGroupService = {
   async create(companyId: string, input: AccountGroupInput) {
     await assertNameAvailable(companyId, input.name);
+    const chartOfAccountsId = await getChartOfAccountsId(companyId);
     return prisma.accountGroup.create({
-      data: { companyId, name: input.name, mainClass: input.mainClass },
+      data: { companyId, chartOfAccountsId, name: input.name, mainClass: input.mainClass },
       include: accountsByNumber,
     });
   },

@@ -37,6 +37,7 @@ export const companyService = {
       await tx.companyUser.create({
         data: { userId, companyId: company.id, role: 'ADMIN', isAdmin: true },
       });
+      await tx.chartOfAccounts.create({ data: { companyId: company.id } });
       return company;
     });
   },

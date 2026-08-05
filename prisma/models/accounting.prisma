@@ -36,6 +36,23 @@ enum AccountMainClass {
   LIABILITIES // Vieras pääoma
 }
 
+// Tilikartta: jokaisella yrityksellä on täsmälleen yksi tilikartta, joka
+// omistaa sen tiliryhmät ja tilit. Erillinen malli (companyId:n unique-rajoite)
+// antaa tilikartalle oman identiteetin nyt ja tilaa laajentaa sitä myöhemmin
+// (esim. nimi, kuvaus, lukitus) ilman että Account/AccountGroup-malleja pitää
+// koskea uudestaan.
+model ChartOfAccounts {
+  id        String  @id @default(uuid())
+  companyId String  @unique
+  company   Company @relation(fields: [companyId], references: [id])
+
+  accountGroups AccountGroup[]
+  accounts      Account[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model AccountGroup {
   id        String           @id @default(uuid())
   name      String
@@ -44,11 +61,17 @@ model AccountGroup {
   company   Company          @relation(fields: [companyId], references: [id])
   accounts  Account[]
 
+  // Denormalisoitu companyId:stä, kuten AccountingPeriod FiscalYearista:
+  // kumpikin yrityksen tili/tiliryhmä kuuluu aina sen ainoaan tilikarttaan.
+  chartOfAccountsId String
+  chartOfAccounts   ChartOfAccounts @relation(fields: [chartOfAccountsId], references: [id])
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([companyId, name])
   @@index([companyId])
+  @@index([chartOfAccountsId])
 }
 
 model Account {
@@ -67,11 +90,16 @@ model Account {
 
   bankAccounts BankAccount[]
 
+  // Ks. AccountGroup.chartOfAccountsId.
+  chartOfAccountsId String
+  chartOfAccounts   ChartOfAccounts @relation(fields: [chartOfAccountsId], references: [id])
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([companyId, number])
   @@index([companyId])
+  @@index([chartOfAccountsId])
 }
 
 model BankAccount {
