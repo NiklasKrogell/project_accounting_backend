@@ -108,7 +108,6 @@ const line = (
   description: '',
   type,
   vatRate: 0,
-  vatAmount: 0,
   costCenterId: lineCostCenterId,
 });
 

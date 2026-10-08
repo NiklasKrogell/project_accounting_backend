@@ -65,7 +65,6 @@ const line = (accountId: string, amount: number, type: 'debit' | 'credit') => ({
   description: '',
   type,
   vatRate: 0,
-  vatAmount: 0,
 });
 
 const sideOf = (body: SheetBody, key: string): Side => {

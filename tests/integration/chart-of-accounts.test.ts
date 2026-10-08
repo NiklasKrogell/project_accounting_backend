@@ -299,6 +299,91 @@ describe('bank accounts', () => {
   });
 });
 
+describe('VAT accounts', () => {
+  it('are unset for a company that has not picked them', async () => {
+    const res = await request(app).get('/api/chart-of-accounts/vat-accounts').set('Cookie', cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({ vatReceivableAccountId: null, vatPayableAccountId: null });
+  });
+
+  it('are set to 1763 and 2939 when the default chart is seeded', async () => {
+    await request(app).post('/api/chart-of-accounts/initialize').set('Cookie', cookie);
+    const res = await request(app).get('/api/chart-of-accounts/vat-accounts').set('Cookie', cookie);
+    expect(res.status).toBe(200);
+
+    const numberOf = async (id: string) =>
+      (await prisma.account.findUniqueOrThrow({ where: { id } })).number;
+    expect(await numberOf(res.body.data.vatReceivableAccountId)).toBe('1763');
+    expect(await numberOf(res.body.data.vatPayableAccountId)).toBe('2939');
+  });
+
+  it('can be set and cleared', async () => {
+    const receivable = await createAccount(companyId, 'Arvonlisäverosaaminen');
+    const payable = await createAccount(companyId, 'Arvonlisäverovelka');
+    const set = await request(app)
+      .put('/api/chart-of-accounts/vat-accounts')
+      .set('Cookie', cookie)
+      .send({ vatReceivableAccountId: receivable.id, vatPayableAccountId: payable.id });
+    expect(set.status).toBe(200);
+    expect(set.body.data).toEqual({
+      vatReceivableAccountId: receivable.id,
+      vatPayableAccountId: payable.id,
+    });
+
+    const cleared = await request(app)
+      .put('/api/chart-of-accounts/vat-accounts')
+      .set('Cookie', cookie)
+      .send({ vatReceivableAccountId: receivable.id, vatPayableAccountId: null });
+    expect(cleared.status).toBe(200);
+    const read = await request(app).get('/api/chart-of-accounts/vat-accounts').set('Cookie', cookie);
+    expect(read.body.data).toEqual({
+      vatReceivableAccountId: receivable.id,
+      vatPayableAccountId: null,
+    });
+  });
+
+  it("rejects another company's account with 400", async () => {
+    const other = await createTestContext('ADMIN');
+    const foreign = await createAccount(other.company.id, 'Vieras tili');
+    const res = await request(app)
+      .put('/api/chart-of-accounts/vat-accounts')
+      .set('Cookie', cookie)
+      .send({ vatReceivableAccountId: foreign.id, vatPayableAccountId: null });
+    expect(res.status).toBe(400);
+  });
+
+  it('lets a VIEWER read but not change them', async () => {
+    const viewer = await addMember(companyId, 'VIEWER');
+    const read = await request(app)
+      .get('/api/chart-of-accounts/vat-accounts')
+      .set('Cookie', viewer.cookie);
+    expect(read.status).toBe(200);
+    const write = await request(app)
+      .put('/api/chart-of-accounts/vat-accounts')
+      .set('Cookie', viewer.cookie)
+      .send({ vatReceivableAccountId: null, vatPayableAccountId: null });
+    expect(write.status).toBe(403);
+  });
+
+  it('blocks deleting an account that is set as a VAT account', async () => {
+    const payable = await createAccount(companyId, 'Arvonlisäverovelka');
+    await request(app)
+      .put('/api/chart-of-accounts/vat-accounts')
+      .set('Cookie', cookie)
+      .send({ vatReceivableAccountId: null, vatPayableAccountId: payable.id });
+
+    const blocked = await request(app).delete(`/api/accounts/${payable.id}`).set('Cookie', cookie);
+    expect(blocked.status).toBe(409);
+
+    await request(app)
+      .put('/api/chart-of-accounts/vat-accounts')
+      .set('Cookie', cookie)
+      .send({ vatReceivableAccountId: null, vatPayableAccountId: null });
+    const freed = await request(app).delete(`/api/accounts/${payable.id}`).set('Cookie', cookie);
+    expect(freed.status).toBe(204);
+  });
+});
+
 describe('authorization and scoping', () => {
   it('forbids a VIEWER from creating chart entries', async () => {
     const viewer = await addMember(companyId, 'VIEWER');

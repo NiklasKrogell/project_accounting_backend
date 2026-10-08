@@ -3,14 +3,16 @@ import { prisma } from '../lib/prisma';
 import { AppError } from '../lib/AppError';
 import { addDays, normalizeToUtcDate } from '../lib/dateOnly';
 import { toCents } from '../lib/money';
+import { buildVatLines, lineVatAmount, type GeneratedVatLine } from '../lib/vat';
 import { assertDateBookable, assertEntryEditable } from './fiscal-guard.service';
 
+// A line as the caller enters it. The amount is net of VAT; the VAT amount and
+// the VAT rows are derived here (see lib/vat.ts), never taken from the caller.
 export interface JournalEntryLineInput {
   accountId: string;
   amount: number;
   description: string;
   vatRate: number;
-  vatAmount: number;
   type: 'debit' | 'credit';
   costCenterId?: string | null;
 }
@@ -37,9 +39,11 @@ export interface ListJournalEntriesFilter {
 
 const withLines = { lines: true as const };
 
-// Double-entry: debits and credits must balance. Amounts are Floats in the
-// schema, so compare in cents to dodge binary rounding (see lib/money.ts).
-function validateLinesBalance(lines: JournalEntryLineInput[]): void {
+// Double-entry: debits and credits must balance, with the VAT rows the lines
+// generate counted on their side. Amounts are Floats in the schema, so compare
+// in cents to dodge binary rounding (see lib/money.ts).
+function validateLinesBalance(entered: JournalEntryLineInput[]): void {
+  const lines = [...entered, ...buildVatLines(entered)];
   const debit = lines.filter((l) => l.type === 'debit').reduce((s, l) => s + toCents(l.amount), 0);
   const credit = lines.filter((l) => l.type === 'credit').reduce((s, l) => s + toCents(l.amount), 0);
   if (debit === 0 || credit === 0) {
@@ -82,6 +86,62 @@ async function assertCostCentersInCompany(
   }
 }
 
+// The rows to store for an entry: the entered lines with their VAT amount,
+// followed by the VAT rows they generate on the company's VAT accounts.
+async function buildStoredLines(
+  tx: Prisma.TransactionClient,
+  companyId: string,
+  entered: JournalEntryLineInput[],
+) {
+  const vatLines = await resolveVatAccounts(tx, companyId, buildVatLines(entered));
+  return [
+    ...entered.map((line) => ({
+      accountId: line.accountId,
+      amount: line.amount,
+      description: line.description,
+      vatRate: line.vatRate,
+      vatAmount: lineVatAmount(line),
+      type: line.type,
+      costCenterId: line.costCenterId ?? null,
+      isVat: false,
+    })),
+    ...vatLines,
+  ];
+}
+
+// A VAT row belongs to the balance sheet, not to the cost center of the line
+// it was computed from, and carries no VAT of its own.
+async function resolveVatAccounts(
+  tx: Prisma.TransactionClient,
+  companyId: string,
+  vatLines: GeneratedVatLine[],
+) {
+  if (vatLines.length === 0) return [];
+  const chart = await tx.chartOfAccounts.findUnique({
+    where: { companyId },
+    select: { vatReceivableAccountId: true, vatPayableAccountId: true },
+  });
+  return vatLines.map((line) => {
+    const accountId =
+      line.vatAccount === 'receivable' ? chart?.vatReceivableAccountId : chart?.vatPayableAccountId;
+    if (!accountId) {
+      throw AppError.badRequest(
+        `VAT ${line.vatAccount} account is not set in the chart of accounts`,
+      );
+    }
+    return {
+      accountId,
+      amount: line.amount,
+      description: line.description,
+      vatRate: line.vatRate,
+      vatAmount: 0,
+      type: line.type,
+      costCenterId: null,
+      isVat: true,
+    };
+  });
+}
+
 // Allocates the next voucher number for the company + voucher type series.
 // The native INSERT ... ON CONFLICT DO UPDATE is atomic and its row lock
 // serializes concurrent allocations; numbers are never reused even if the
@@ -111,6 +171,7 @@ export const journalEntryService = {
         ...input.lines.map((l) => l.accountId),
       ]);
       await assertCostCentersInCompany(tx, companyId, input.lines);
+      const lines = await buildStoredLines(tx, companyId, input.lines);
       const voucherNumber = await allocateVoucherNumber(tx, companyId, input.voucherType);
       return tx.journalEntry.create({
         data: {
@@ -121,7 +182,7 @@ export const journalEntryService = {
           date,
           description: input.description,
           accountId: input.accountId,
-          lines: { create: input.lines },
+          lines: { create: lines },
         },
         include: withLines,
       });
@@ -162,7 +223,7 @@ export const journalEntryService = {
   },
 
   // Full replace: lines are swapped wholesale, which keeps the API simple and
-  // avoids per-line diffing.
+  // avoids per-line diffing. The VAT rows go with them and are generated anew.
   async update(companyId: string, entryId: string, input: UpdateJournalEntryInput) {
     validateLinesBalance(input.lines);
     const newDate = normalizeToUtcDate(input.date);
@@ -179,6 +240,7 @@ export const journalEntryService = {
         ...input.lines.map((l) => l.accountId),
       ]);
       await assertCostCentersInCompany(tx, companyId, input.lines);
+      const lines = await buildStoredLines(tx, companyId, input.lines);
       await tx.journalEntryLine.deleteMany({ where: { journalEntryId: entry.id } });
       return tx.journalEntry.update({
         where: { id: entry.id },
@@ -186,7 +248,7 @@ export const journalEntryService = {
           date: newDate,
           description: input.description,
           accountId: input.accountId,
-          lines: { create: input.lines },
+          lines: { create: lines },
         },
         include: withLines,
       });

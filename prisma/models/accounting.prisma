@@ -202,6 +202,16 @@ model ChartOfAccounts {
   accountGroups AccountGroup[]
   accounts      Account[]
 
+  // Tilit, joille kirjausrivien arvonlisävero kirjataan automaattisesti
+  // (ks. src/lib/vat.ts): debet-rivin vero ALV-saamistilille, kredit-rivin vero
+  // ALV-velkatilille. Null kunnes asetettu; oletustilikartta asettaa ne
+  // tileille 1763 ja 2939. Restrict: käytössä olevaa ALV-tiliä ei voi poistaa
+  // (ks. accountService.remove).
+  vatReceivableAccountId String?
+  vatReceivableAccount   Account? @relation("VatReceivableAccount", fields: [vatReceivableAccountId], references: [id], onDelete: Restrict)
+  vatPayableAccountId    String?
+  vatPayableAccount      Account? @relation("VatPayableAccount", fields: [vatPayableAccountId], references: [id], onDelete: Restrict)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -252,6 +262,10 @@ model Account {
   // Ks. AccountGroup.chartOfAccountsId.
   chartOfAccountsId String
   chartOfAccounts   ChartOfAccounts @relation(fields: [chartOfAccountsId], references: [id])
+
+  // Ks. ChartOfAccounts.vatReceivableAccountId / vatPayableAccountId.
+  vatReceivableFor ChartOfAccounts[] @relation("VatReceivableAccount")
+  vatPayableFor    ChartOfAccounts[] @relation("VatPayableAccount")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -343,6 +357,10 @@ model JournalEntryLine {
   vatRate        Float
   vatAmount      Float
   type           String // "debit" or "credit"
+  // True riveillä, jotka palvelin on generoinut toisen rivin verosta
+  // ALV-tilille (ks. src/lib/vat.ts). Niitä ei koskaan oteta vastaan
+  // asiakkaalta: ne luodaan uudestaan aina kun kirjaus tallennetaan.
+  isVat          Boolean      @default(false)
   journalEntryId String
   journalEntry   JournalEntry @relation(fields: [journalEntryId], references: [id])
   // Valinnainen kustannuspaikka. Restrict (Prisman oletus valinnaiselle

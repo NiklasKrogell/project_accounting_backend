@@ -29,6 +29,11 @@ export interface SeedGroup {
   accounts: SeedAccount[];
 }
 
+// The accounts of the chart below that generated VAT rows post to (see
+// lib/vat.ts). Seeding sets them as the company's VAT accounts.
+export const DEFAULT_VAT_RECEIVABLE_ACCOUNT_NUMBER = '1763';
+export const DEFAULT_VAT_PAYABLE_ACCOUNT_NUMBER = '2939';
+
 export const DEFAULT_CHART_OF_ACCOUNTS: SeedGroup[] = [
   // --- Vastaavaa: A Pysyvät vastaavat ---
   // One group per item of the statutory layout (PMA 1753/2015, Annex V) here
@@ -408,6 +413,7 @@ export const DEFAULT_CHART_OF_ACCOUNTS: SeedGroup[] = [
 // Guards the seed data's internal consistency (used by a unit test): account
 // numbers must be globally unique within the chart, group names distinct, and
 // every sub-item and balance sheet item must belong to its group's main class.
+// The default chart itself must also hold the two default VAT accounts.
 export function assertDefaultChartIntegrity(chart: SeedGroup[] = DEFAULT_CHART_OF_ACCOUNTS): void {
   const numbers = new Set<string>();
   const groupNames = new Set<string>();
@@ -432,6 +438,13 @@ export function assertDefaultChartIntegrity(chart: SeedGroup[] = DEFAULT_CHART_O
         throw new Error(`Duplicate account number in default chart: ${account.number}`);
       }
       numbers.add(account.number);
+    }
+  }
+  if (chart === DEFAULT_CHART_OF_ACCOUNTS) {
+    for (const number of [DEFAULT_VAT_RECEIVABLE_ACCOUNT_NUMBER, DEFAULT_VAT_PAYABLE_ACCOUNT_NUMBER]) {
+      if (!numbers.has(number)) {
+        throw new Error(`Default VAT account ${number} is missing from the default chart`);
+      }
     }
   }
 }

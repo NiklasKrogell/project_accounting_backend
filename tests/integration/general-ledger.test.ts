@@ -91,7 +91,6 @@ beforeAll(async () => {
     description,
     type,
     vatRate: 0,
-    vatAmount: 0,
     costCenterId: lineCostCenterId,
   });
 
@@ -333,8 +332,8 @@ describe('GET /api/general-ledger', () => {
       description: 'Vieras kirjaus',
       accountId: foreignBank.id,
       lines: [
-        { accountId: foreignBank.id, amount: 50, description: '', type: 'debit', vatRate: 0, vatAmount: 0 },
-        { accountId: foreignSales.id, amount: 50, description: '', type: 'credit', vatRate: 0, vatAmount: 0 },
+        { accountId: foreignBank.id, amount: 50, description: '', type: 'debit', vatRate: 0 },
+        { accountId: foreignSales.id, amount: 50, description: '', type: 'credit', vatRate: 0 },
       ],
     });
 

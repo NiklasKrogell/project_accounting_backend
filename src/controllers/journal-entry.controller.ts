@@ -14,12 +14,13 @@ const voucherTypeSchema = z.enum([
   'MEMOVOUCHER',
 ]);
 
+// Lines are the entered ones only. The VAT amount and the VAT rows are derived
+// by the service, so a vatAmount or isVat in the body is stripped, not stored.
 const lineSchema = z.object({
   accountId: z.string().uuid(),
   amount: z.number().positive(),
   description: z.string().trim().max(500).default(''),
   vatRate: z.number().min(0).max(100),
-  vatAmount: z.number().min(0),
   type: z.enum(['debit', 'credit']),
   costCenterId: z
     .string()
@@ -65,6 +66,7 @@ function serializeEntry(entry: JournalEntry & { lines: JournalEntryLine[] }) {
       vatRate: line.vatRate,
       vatAmount: line.vatAmount,
       type: line.type,
+      isVat: line.isVat,
       costCenterId: line.costCenterId,
     })),
   };

@@ -59,6 +59,7 @@ function serializeLedger(ledger: LedgerResult['ledgers'][number]) {
       credit: line.type === 'credit' ? line.amount : 0,
       vatRate: line.vatRate,
       vatAmount: line.vatAmount,
+      isVat: line.isVat,
       runningBalance: line.runningBalance,
     })),
   };

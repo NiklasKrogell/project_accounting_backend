@@ -125,14 +125,13 @@ describe('cost centers CRUD', () => {
       description: 'Kustannuspaikan käyttö',
       accountId: bank.id,
       lines: [
-        { accountId: bank.id, amount: 100, description: '', type: 'debit', vatRate: 0, vatAmount: 0 },
+        { accountId: bank.id, amount: 100, description: '', type: 'debit', vatRate: 0 },
         {
           accountId: sales.id,
           amount: 100,
           description: '',
           type: 'credit',
           vatRate: 0,
-          vatAmount: 0,
           costCenterId: costCenter.id,
         },
       ],
