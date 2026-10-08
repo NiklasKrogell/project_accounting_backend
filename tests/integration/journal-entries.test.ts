@@ -409,6 +409,154 @@ describe('VAT rows', () => {
     expect(res.body.error.message).toContain('debit 100.00, credit 125.50');
   });
 
+  it('takes the VAT out of the line amount when the amounts are entered gross', async () => {
+    const res = await request(app)
+      .post('/api/journal-entries')
+      .set('Cookie', cookie)
+      .send(
+        entryBody({
+          vatBasis: 'gross',
+          lines: [
+            { accountId: bankAccountId, amount: 125.5, type: 'debit', vatRate: 0 },
+            { accountId: salesAccountId, amount: 125.5, type: 'credit', vatRate: 25.5 },
+          ],
+        }),
+      );
+    expect(res.status).toBe(201);
+    // Stored exactly as the net entry of the same sale would be.
+    expect(res.body.data.lines).toHaveLength(3);
+    const byAccount = new Map<string, LineBody>(
+      res.body.data.lines.map((l: LineBody) => [l.accountId, l]),
+    );
+    expect(byAccount.get(bankAccountId)).toMatchObject({ amount: 125.5, vatAmount: 0 });
+    expect(byAccount.get(salesAccountId)).toMatchObject({
+      amount: 100,
+      vatRate: 25.5,
+      vatAmount: 25.5,
+      isVat: false,
+    });
+    expect(byAccount.get(vatPayableAccountId)).toMatchObject({
+      amount: 25.5,
+      type: 'credit',
+      vatRate: 0,
+      isVat: true,
+    });
+  });
+
+  it('keeps a gross entry balanced where the VAT on the net would be a cent off', async () => {
+    // 19,91 gross holds 4,05 of VAT; 25,5 % of the 15,86 net would be 4,04.
+    const res = await request(app)
+      .post('/api/journal-entries')
+      .set('Cookie', cookie)
+      .send(
+        entryBody({
+          vatBasis: 'gross',
+          lines: [
+            { accountId: bankAccountId, amount: 19.91, type: 'debit', vatRate: 0 },
+            { accountId: salesAccountId, amount: 19.91, type: 'credit', vatRate: 25.5 },
+          ],
+        }),
+      );
+    expect(res.status).toBe(201);
+    const byAccount = new Map<string, LineBody>(
+      res.body.data.lines.map((l: LineBody) => [l.accountId, l]),
+    );
+    expect(byAccount.get(salesAccountId)).toMatchObject({ amount: 15.86, vatAmount: 4.05 });
+    expect(byAccount.get(vatPayableAccountId)!.amount).toBe(4.05);
+  });
+
+  it('rejects net-style amounts sent as gross, and an unknown basis', async () => {
+    const unbalanced = await request(app)
+      .post('/api/journal-entries')
+      .set('Cookie', cookie)
+      .send(entryBody({ vatBasis: 'gross' }));
+    expect(unbalanced.status).toBe(400);
+    expect(unbalanced.body.error.message).toContain('debit 125.50, credit 100.00');
+
+    const unknown = await request(app)
+      .post('/api/journal-entries')
+      .set('Cookie', cookie)
+      .send(entryBody({ vatBasis: 'inclusive' }));
+    expect(unknown.status).toBe(400);
+  });
+
+  it('generates no VAT rows when automatic VAT is off, and balances the lines as entered', async () => {
+    // The VAT is booked by hand, as a line of its own on the VAT account.
+    const res = await request(app)
+      .post('/api/journal-entries')
+      .set('Cookie', cookie)
+      .send(
+        entryBody({
+          automaticVat: false,
+          lines: [
+            { accountId: bankAccountId, amount: 125.5, type: 'debit', vatRate: 0 },
+            { accountId: salesAccountId, amount: 100, type: 'credit', vatRate: 25.5 },
+            { accountId: vatPayableAccountId, amount: 25.5, type: 'credit', vatRate: 0 },
+          ],
+        }),
+      );
+    expect(res.status).toBe(201);
+    expect(res.body.data.lines).toHaveLength(3);
+    expect(vatRowsOf(res.body)).toHaveLength(0);
+    // The rate still describes the sales line.
+    const sales = res.body.data.lines.find((l: LineBody) => l.accountId === salesAccountId);
+    expect(sales).toMatchObject({ amount: 100, vatRate: 25.5, vatAmount: 25.5, isVat: false });
+
+    // Without the hand-booked VAT line the same entry is out of balance.
+    const unbalanced = await request(app)
+      .post('/api/journal-entries')
+      .set('Cookie', cookie)
+      .send(entryBody({ automaticVat: false }));
+    expect(unbalanced.status).toBe(400);
+    expect(unbalanced.body.error.message).toContain('debit 125.50, credit 100.00');
+  });
+
+  it('takes nothing out of the amounts when automatic VAT is off, whatever the basis', async () => {
+    const res = await request(app)
+      .post('/api/journal-entries')
+      .set('Cookie', cookie)
+      .send(
+        entryBody({
+          automaticVat: false,
+          vatBasis: 'gross',
+          lines: [
+            { accountId: bankAccountId, amount: 100, type: 'debit', vatRate: 0 },
+            { accountId: salesAccountId, amount: 100, type: 'credit', vatRate: 25.5 },
+          ],
+        }),
+      );
+    expect(res.status).toBe(201);
+    expect(res.body.data.lines).toHaveLength(2);
+    const sales = res.body.data.lines.find((l: LineBody) => l.accountId === salesAccountId);
+    expect(sales.amount).toBe(100);
+  });
+
+  it('does not need the VAT accounts when automatic VAT is off', async () => {
+    const other = await createTestContext('ADMIN');
+    const bank = await createAccount(other.company.id, 'Pankkitili');
+    const sales = await createAccount(other.company.id, 'Myynti');
+    await fiscalYearService.create(other.company.id, {
+      startDate: parseDateOnly('2025-01-01'),
+      endDate: parseDateOnly('2025-12-31'),
+      granularity: 'MONTH',
+    });
+    const res = await request(app)
+      .post('/api/journal-entries')
+      .set('Cookie', other.cookie)
+      .send({
+        voucherType: 'SALES',
+        date: '2025-01-15',
+        description: 'Myyntilasku',
+        accountId: bank.id,
+        automaticVat: false,
+        lines: [
+          { accountId: bank.id, amount: 100, type: 'debit', vatRate: 0 },
+          { accountId: sales.id, amount: 100, type: 'credit', vatRate: 25.5 },
+        ],
+      });
+    expect(res.status).toBe(201);
+  });
+
   it('generates no VAT row for an entry without VAT', async () => {
     const res = await request(app)
       .post('/api/journal-entries')
@@ -444,6 +592,27 @@ describe('VAT rows', () => {
     expect(changed.status).toBe(200);
     expect(vatRowsOf(changed.body)).toHaveLength(1);
     expect(vatRowsOf(changed.body)[0]).toMatchObject({ amount: 20, vatRate: 0 });
+
+    // An update may switch the basis: 220,00 gross at 10 % is the same entry.
+    const gross = await request(app)
+      .put(`/api/journal-entries/${created.body.data.id}`)
+      .set('Cookie', cookie)
+      .send({
+        date: '2025-01-15',
+        description: 'Muutettu',
+        accountId: bankAccountId,
+        vatBasis: 'gross',
+        lines: [
+          { accountId: bankAccountId, amount: 220, type: 'debit', vatRate: 0 },
+          { accountId: salesAccountId, amount: 220, type: 'credit', vatRate: 10 },
+        ],
+      });
+    expect(gross.status).toBe(200);
+    expect(vatRowsOf(gross.body)).toHaveLength(1);
+    expect(vatRowsOf(gross.body)[0]).toMatchObject({ amount: 20 });
+    expect(
+      gross.body.data.lines.find((l: LineBody) => l.accountId === salesAccountId).amount,
+    ).toBe(200);
 
     const withoutVat = await put([
       { accountId: bankAccountId, amount: 200, type: 'debit', vatRate: 0 },

@@ -3,11 +3,13 @@ import { prisma } from '../lib/prisma';
 import { AppError } from '../lib/AppError';
 import { addDays, normalizeToUtcDate } from '../lib/dateOnly';
 import { toCents } from '../lib/money';
-import { buildVatLines, lineVatAmount, type GeneratedVatLine } from '../lib/vat';
+import { buildVatLines, splitVat, type GeneratedVatLine, type VatBasis } from '../lib/vat';
 import { assertDateBookable, assertEntryEditable } from './fiscal-guard.service';
 
-// A line as the caller enters it. The amount is net of VAT; the VAT amount and
-// the VAT rows are derived here (see lib/vat.ts), never taken from the caller.
+// A line as the caller enters it. Whether the amount is net of VAT or includes
+// it is the entry-level vatBasis; the stored net amount, the VAT amount and
+// (unless automaticVat is off) the VAT rows are derived here (see lib/vat.ts),
+// never taken from the caller.
 export interface JournalEntryLineInput {
   accountId: string;
   amount: number;
@@ -22,7 +24,29 @@ export interface CreateJournalEntryInput {
   date: Date; // UTC midnight
   description: string;
   accountId: string;
+  // How the line amounts are entered; net when left out.
+  vatBasis?: VatBasis | undefined;
+  // Whether VAT rows are generated from the lines; on when left out. Off, the
+  // caller books the VAT itself: the lines are stored as entered and must
+  // balance as entered, and a line's vatRate and vatAmount only describe it.
+  automaticVat?: boolean | undefined;
   lines: JournalEntryLineInput[];
+}
+
+// How an entry's VAT is handled, with the input's defaults applied. Without
+// automatic VAT nothing is taken out of an amount, so the basis is always net.
+interface VatHandling {
+  automatic: boolean;
+  basis: VatBasis;
+}
+
+function vatHandlingOf(input: Pick<CreateJournalEntryInput, 'vatBasis' | 'automaticVat'>): VatHandling {
+  const automatic = input.automaticVat ?? true;
+  return { automatic, basis: automatic ? (input.vatBasis ?? 'net') : 'net' };
+}
+
+function vatLinesOf(entered: JournalEntryLineInput[], vat: VatHandling) {
+  return vat.automatic ? buildVatLines(entered, vat.basis) : [];
 }
 
 // voucherType is deliberately not updatable: the voucher number belongs to the
@@ -42,8 +66,11 @@ const withLines = { lines: true as const };
 // Double-entry: debits and credits must balance, with the VAT rows the lines
 // generate counted on their side. Amounts are Floats in the schema, so compare
 // in cents to dodge binary rounding (see lib/money.ts).
-function validateLinesBalance(entered: JournalEntryLineInput[]): void {
-  const lines = [...entered, ...buildVatLines(entered)];
+function validateLinesBalance(entered: JournalEntryLineInput[], vat: VatHandling): void {
+  const lines = [
+    ...entered.map((l) => ({ type: l.type, amount: splitVat(l, vat.basis).net })),
+    ...vatLinesOf(entered, vat),
+  ];
   const debit = lines.filter((l) => l.type === 'debit').reduce((s, l) => s + toCents(l.amount), 0);
   const credit = lines.filter((l) => l.type === 'credit').reduce((s, l) => s + toCents(l.amount), 0);
   if (debit === 0 || credit === 0) {
@@ -86,25 +113,30 @@ async function assertCostCentersInCompany(
   }
 }
 
-// The rows to store for an entry: the entered lines with their VAT amount,
-// followed by the VAT rows they generate on the company's VAT accounts.
+// The rows to store for an entry: the entered lines at their net amount with
+// their VAT amount, followed by the VAT rows they generate on the company's
+// VAT accounts (none when automatic VAT is off).
 async function buildStoredLines(
   tx: Prisma.TransactionClient,
   companyId: string,
   entered: JournalEntryLineInput[],
+  vat: VatHandling,
 ) {
-  const vatLines = await resolveVatAccounts(tx, companyId, buildVatLines(entered));
+  const vatLines = await resolveVatAccounts(tx, companyId, vatLinesOf(entered, vat));
   return [
-    ...entered.map((line) => ({
-      accountId: line.accountId,
-      amount: line.amount,
-      description: line.description,
-      vatRate: line.vatRate,
-      vatAmount: lineVatAmount(line),
-      type: line.type,
-      costCenterId: line.costCenterId ?? null,
-      isVat: false,
-    })),
+    ...entered.map((line) => {
+      const split = splitVat(line, vat.basis);
+      return {
+        accountId: line.accountId,
+        amount: split.net,
+        description: line.description,
+        vatRate: line.vatRate,
+        vatAmount: split.vat,
+        type: line.type,
+        costCenterId: line.costCenterId ?? null,
+        isVat: false,
+      };
+    }),
     ...vatLines,
   ];
 }
@@ -162,7 +194,8 @@ async function allocateVoucherNumber(
 
 export const journalEntryService = {
   async create(companyId: string, userId: string, input: CreateJournalEntryInput) {
-    validateLinesBalance(input.lines);
+    const vat = vatHandlingOf(input);
+    validateLinesBalance(input.lines, vat);
     const date = normalizeToUtcDate(input.date);
 
     return prisma.$transaction(async (tx) => {
@@ -172,7 +205,7 @@ export const journalEntryService = {
         ...input.lines.map((l) => l.accountId),
       ]);
       await assertCostCentersInCompany(tx, companyId, input.lines);
-      const lines = await buildStoredLines(tx, companyId, input.lines);
+      const lines = await buildStoredLines(tx, companyId, input.lines, vat);
       const voucherNumber = await allocateVoucherNumber(tx, companyId, input.voucherType);
       return tx.journalEntry.create({
         data: {
@@ -226,7 +259,8 @@ export const journalEntryService = {
   // Full replace: lines are swapped wholesale, which keeps the API simple and
   // avoids per-line diffing. The VAT rows go with them and are generated anew.
   async update(companyId: string, entryId: string, input: UpdateJournalEntryInput) {
-    validateLinesBalance(input.lines);
+    const vat = vatHandlingOf(input);
+    validateLinesBalance(input.lines, vat);
     const newDate = normalizeToUtcDate(input.date);
 
     return prisma.$transaction(async (tx) => {
@@ -241,7 +275,7 @@ export const journalEntryService = {
         ...input.lines.map((l) => l.accountId),
       ]);
       await assertCostCentersInCompany(tx, companyId, input.lines);
-      const lines = await buildStoredLines(tx, companyId, input.lines);
+      const lines = await buildStoredLines(tx, companyId, input.lines, vat);
       await tx.journalEntryLine.deleteMany({ where: { journalEntryId: entry.id } });
       return tx.journalEntry.update({
         where: { id: entry.id },

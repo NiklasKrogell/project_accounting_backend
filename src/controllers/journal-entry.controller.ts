@@ -14,8 +14,11 @@ const voucherTypeSchema = z.enum([
   'MEMOVOUCHER',
 ]);
 
-// Lines are the entered ones only. The VAT amount and the VAT rows are derived
-// by the service, so a vatAmount or isVat in the body is stripped, not stored.
+// Lines are the entered ones only, their amounts net of VAT or including it
+// according to the entry-level vatBasis. The VAT amount and the VAT rows are
+// derived by the service, so a vatAmount or isVat in the body is stripped,
+// not stored. With automaticVat off no VAT rows are derived: the caller books
+// the VAT as lines of its own.
 const lineSchema = z.object({
   accountId: z.string().uuid(),
   amount: z.number().positive(),
@@ -34,6 +37,8 @@ const createEntrySchema = z.object({
   date: dateOnlySchema,
   description: z.string().trim().min(1).max(500),
   accountId: z.string().uuid(),
+  vatBasis: z.enum(['net', 'gross']).default('net'),
+  automaticVat: z.boolean().default(true),
   lines: z.array(lineSchema).min(2).max(100),
 });
 
