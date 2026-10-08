@@ -23,6 +23,7 @@ model Company {
   fiscalYears        FiscalYear[]
   accountingPeriods  AccountingPeriod[]
   voucherCounters    VoucherCounter[]
+  costCenters        CostCenter[]
 }
 
 // Membership of a user in a company. Role and admin rights are per-company:

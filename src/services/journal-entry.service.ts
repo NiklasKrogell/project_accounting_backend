@@ -12,6 +12,7 @@ export interface JournalEntryLineInput {
   vatRate: number;
   vatAmount: number;
   type: 'debit' | 'credit';
+  costCenterId?: string | null;
 }
 
 export interface CreateJournalEntryInput {
@@ -65,6 +66,22 @@ async function assertAccountsInCompany(
   }
 }
 
+// Same rule for the optional cost centers on the lines.
+async function assertCostCentersInCompany(
+  tx: Prisma.TransactionClient,
+  companyId: string,
+  lines: JournalEntryLineInput[],
+): Promise<void> {
+  const unique = [
+    ...new Set(lines.map((l) => l.costCenterId).filter((id): id is string => id != null)),
+  ];
+  if (unique.length === 0) return;
+  const found = await tx.costCenter.count({ where: { id: { in: unique }, companyId } });
+  if (found !== unique.length) {
+    throw AppError.badRequest('One or more cost centers do not exist in this company');
+  }
+}
+
 // Allocates the next voucher number for the company + voucher type series.
 // The native INSERT ... ON CONFLICT DO UPDATE is atomic and its row lock
 // serializes concurrent allocations; numbers are never reused even if the
@@ -93,6 +110,7 @@ export const journalEntryService = {
         input.accountId,
         ...input.lines.map((l) => l.accountId),
       ]);
+      await assertCostCentersInCompany(tx, companyId, input.lines);
       const voucherNumber = await allocateVoucherNumber(tx, companyId, input.voucherType);
       return tx.journalEntry.create({
         data: {
@@ -160,6 +178,7 @@ export const journalEntryService = {
         input.accountId,
         ...input.lines.map((l) => l.accountId),
       ]);
+      await assertCostCentersInCompany(tx, companyId, input.lines);
       await tx.journalEntryLine.deleteMany({ where: { journalEntryId: entry.id } });
       return tx.journalEntry.update({
         where: { id: entry.id },

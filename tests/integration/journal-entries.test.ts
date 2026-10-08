@@ -5,7 +5,7 @@ import { prisma } from '../../src/lib/prisma';
 import { parseDateOnly } from '../../src/lib/dateOnly';
 import { fiscalYearService } from '../../src/services/fiscal-year.service';
 import { accountingPeriodService } from '../../src/services/accounting-period.service';
-import { addMember, createAccount, createTestContext } from './helpers';
+import { addMember, createAccount, createCostCenter, createTestContext } from './helpers';
 
 const app = createApp();
 
@@ -122,6 +122,62 @@ describe('POST /api/journal-entries', () => {
     expect(res.status).toBe(400);
   });
 
+  it('stores an optional cost center per line, null when omitted', async () => {
+    const costCenter = await createCostCenter(companyId, 'JE-1');
+    const res = await request(app)
+      .post('/api/journal-entries')
+      .set('Cookie', cookie)
+      .send(
+        entryBody({
+          lines: [
+            { accountId: bankAccountId, amount: 124, type: 'debit', vatRate: 0, vatAmount: 0 },
+            {
+              accountId: salesAccountId,
+              amount: 124,
+              type: 'credit',
+              vatRate: 24,
+              vatAmount: 24,
+              costCenterId: costCenter.id,
+            },
+          ],
+        }),
+      );
+    expect(res.status).toBe(201);
+    const byAccount = new Map<string, string | null>(
+      res.body.data.lines.map((l: { accountId: string; costCenterId: string | null }) => [
+        l.accountId,
+        l.costCenterId,
+      ]),
+    );
+    expect(byAccount.get(salesAccountId)).toBe(costCenter.id);
+    expect(byAccount.get(bankAccountId)).toBeNull();
+  });
+
+  it("rejects another company's cost center with 400", async () => {
+    const other = await createTestContext('ADMIN');
+    const foreign = await createCostCenter(other.company.id, 'JE-1');
+    const res = await request(app)
+      .post('/api/journal-entries')
+      .set('Cookie', cookie)
+      .send(
+        entryBody({
+          lines: [
+            {
+              accountId: bankAccountId,
+              amount: 124,
+              type: 'debit',
+              vatRate: 0,
+              vatAmount: 0,
+              costCenterId: foreign.id,
+            },
+            { accountId: salesAccountId, amount: 124, type: 'credit', vatRate: 24, vatAmount: 24 },
+          ],
+        }),
+      );
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toBe('One or more cost centers do not exist in this company');
+  });
+
   it('rejects creation from a VIEWER with 403', async () => {
     const viewer = await addMember(companyId, 'VIEWER');
     const res = await request(app)
@@ -171,6 +227,38 @@ describe('PUT /api/journal-entries/:id', () => {
       where: { journalEntryId: created.body.data.id },
     });
     expect(lineCount).toBe(2);
+  });
+
+  it('replaces the cost centers along with the lines', async () => {
+    const costCenter = await createCostCenter(companyId, 'JE-2');
+    const created = await request(app)
+      .post('/api/journal-entries')
+      .set('Cookie', cookie)
+      .send(entryBody());
+    const res = await request(app)
+      .put(`/api/journal-entries/${created.body.data.id}`)
+      .set('Cookie', cookie)
+      .send({
+        date: '2025-01-15',
+        description: 'Kustannuspaikalla',
+        accountId: bankAccountId,
+        lines: [
+          { accountId: bankAccountId, amount: 124, type: 'debit', vatRate: 0, vatAmount: 0 },
+          {
+            accountId: salesAccountId,
+            amount: 124,
+            type: 'credit',
+            vatRate: 24,
+            vatAmount: 24,
+            costCenterId: costCenter.id,
+          },
+        ],
+      });
+    expect(res.status).toBe(200);
+    const tagged = res.body.data.lines.filter(
+      (l: { costCenterId: string | null }) => l.costCenterId === costCenter.id,
+    );
+    expect(tagged).toHaveLength(1);
   });
 
   it('rejects moving an entry into a closed period with 409', async () => {

@@ -14,6 +14,7 @@ const querySchema = z
     to: dateOnlySchema,
     compareFrom: dateOnlySchema.optional(),
     compareTo: dateOnlySchema.optional(),
+    costCenterId: z.string().uuid().optional(),
   })
   .refine((q) => q.from <= q.to, { message: 'from must not be after to', path: ['from'] })
   .refine((q) => (q.compareFrom === undefined) === (q.compareTo === undefined), {
@@ -37,6 +38,7 @@ export const incomeStatementController = {
     const statement = await incomeStatementService.get(companyId, {
       period: { from: query.from, to: query.to },
       comparison,
+      costCenterId: query.costCenterId,
     });
 
     // Every item of the layout is returned, including empty ones: which items
@@ -47,6 +49,7 @@ export const incomeStatementController = {
         comparison: comparison
           ? { from: formatDateOnly(comparison.from), to: formatDateOnly(comparison.to) }
           : null,
+        costCenterId: query.costCenterId ?? null,
         ...statement,
       },
     });

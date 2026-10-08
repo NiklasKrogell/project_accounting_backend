@@ -5,7 +5,7 @@ import { prisma } from '../../src/lib/prisma';
 import { parseDateOnly } from '../../src/lib/dateOnly';
 import { fiscalYearService } from '../../src/services/fiscal-year.service';
 import { journalEntryService } from '../../src/services/journal-entry.service';
-import { addMember, createTestContext } from './helpers';
+import { addMember, createCostCenter, createTestContext } from './helpers';
 
 const app = createApp();
 
@@ -19,12 +19,15 @@ const app = createApp();
 //   2025-02-01  bank  +124 / sales  -124        (exactly `from`)
 //   2025-02-28  expense +24 / bank    -24       (exactly `to`)
 //   2025-03-05  float +0.1, +0.2 / sales -0.3   (float accumulation)
+// The bank lines of the first two entries are tagged with a cost center; the
+// 2025-02-28 bank line is not.
 let cookie: string;
 let companyId: string;
 let bankId: string;
 let salesId: string;
 let expenseId: string;
 let floatId: string;
+let costCenterId: string;
 
 // The shared createAccount helper randomises account numbers; ordering
 // assertions need known ones, since accounts are paged in lexicographic
@@ -74,13 +77,22 @@ beforeAll(async () => {
     granularity: 'MONTH',
   });
 
-  const line = (accountId: string, amount: number, type: 'debit' | 'credit', description = '') => ({
+  costCenterId = (await createCostCenter(companyId, '100')).id;
+
+  const line = (
+    accountId: string,
+    amount: number,
+    type: 'debit' | 'credit',
+    description = '',
+    lineCostCenterId: string | null = null,
+  ) => ({
     accountId,
     amount,
     description,
     type,
     vatRate: 0,
     vatAmount: 0,
+    costCenterId: lineCostCenterId,
   });
 
   const post = (
@@ -97,11 +109,11 @@ beforeAll(async () => {
     });
 
   await post('2025-01-10', 'Avaava', [
-    line(bankId, 1000, 'debit'),
+    line(bankId, 1000, 'debit', '', costCenterId),
     line(salesId, 1000, 'credit'),
   ]);
   await post('2025-02-01', 'Helmikuun myynti', [
-    line(bankId, 124, 'debit', 'Asiakas Oy'),
+    line(bankId, 124, 'debit', 'Asiakas Oy', costCenterId),
     line(salesId, 124, 'credit'),
   ]);
   await post('2025-02-28', 'Pankkikulu', [
@@ -262,6 +274,34 @@ describe('GET /api/general-ledger', () => {
     // total counts accounts (3), not lines (4), and is stable across pages.
     expect(first.body.meta.total).toBe(3);
     expect(second.body.meta).toEqual({ total: 3, take: 1, skip: 1 });
+  });
+
+  it('narrows opening balance, lines and totals to a cost center', async () => {
+    const res = await getLedger({ ...february, costCenterId });
+    expect(res.status).toBe(200);
+    // Only the bank account has lines tagged with the cost center.
+    expect(accountIdsIn(res.body)).toEqual([bankId]);
+    const bank = ledgerFor(res.body, bankId);
+    expect(bank.openingBalance).toBe(1000);
+    expect(bank.lineCount).toBe(1);
+    expect(bank.debitTotal).toBe(124);
+    // The untagged 2025-02-28 credit of 24 is outside the cost center.
+    expect(bank.creditTotal).toBe(0);
+    expect(bank.closingBalance).toBe(1124);
+  });
+
+  it("exposes each line's cost center, null when untagged", async () => {
+    const res = await getLedger({ ...february, accountId: bankId });
+    const lines = res.body.data[0].lines as Array<{ costCenterId: string | null }>;
+    expect(lines.map((l) => l.costCenterId)).toEqual([costCenterId, null]);
+  });
+
+  it('404s for a cost center belonging to another company', async () => {
+    const other = await createTestContext('ADMIN');
+    const foreign = await createCostCenter(other.company.id, '100');
+    const res = await getLedger({ ...february, costCenterId: foreign.id });
+    expect(res.status).toBe(404);
+    expect(res.body.error.message).toBe('Cost center not found');
   });
 
   it('rejects an inverted date range', async () => {

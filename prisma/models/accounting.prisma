@@ -345,11 +345,36 @@ model JournalEntryLine {
   type           String // "debit" or "credit"
   journalEntryId String
   journalEntry   JournalEntry @relation(fields: [journalEntryId], references: [id])
+  // Valinnainen kustannuspaikka. Restrict (Prisman oletus valinnaiselle
+  // relaatiolle olisi SetNull): käytössä olevaa kustannuspaikkaa ei voi
+  // poistaa, eikä rivi saa hiljaa menettää sitä (ks. costCenterService.remove).
+  costCenterId   String?
+  costCenter     CostCenter?  @relation(fields: [costCenterId], references: [id], onDelete: Restrict)
 
   // Postgres does not index FK columns automatically. accountId serves the
   // general-ledger queries (per-account line fetch, opening-balance groupBy,
   // and the movement-in-range existence probe); journalEntryId serves the
-  // deleteMany in entry update/remove and the journal list's line fan-out.
+  // deleteMany in entry update/remove and the journal list's line fan-out;
+  // costCenterId serves the cost center report filters and the in-use check
+  // on cost center delete.
   @@index([accountId])
   @@index([journalEntryId])
+  @@index([costCenterId])
+}
+
+// Kustannuspaikka: kirjausrivin valinnainen seurantakohde. Koodi on uniikki
+// yrityksen sisällä, kuten tilinumero.
+model CostCenter {
+  id        String             @id @default(uuid())
+  code      String
+  name      String
+  companyId String
+  company   Company            @relation(fields: [companyId], references: [id])
+  lines     JournalEntryLine[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, code])
+  @@index([companyId])
 }

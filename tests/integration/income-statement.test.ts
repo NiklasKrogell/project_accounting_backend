@@ -6,7 +6,7 @@ import { parseDateOnly } from '../../src/lib/dateOnly';
 import type { AccountMainClass, IncomeStatementSubItem } from '../../src/generated/prisma/client';
 import { fiscalYearService } from '../../src/services/fiscal-year.service';
 import { journalEntryService } from '../../src/services/journal-entry.service';
-import { addMember, createTestContext } from './helpers';
+import { addMember, createCostCenter, createTestContext } from './helpers';
 
 const app = createApp();
 
@@ -17,7 +17,8 @@ const app = createApp();
 //   2024-06-15  bank +300 / sales -300          (comparison year)
 //   2025-01-01  bank +1000 / sales -1000        (exactly `from`)
 //   2025-06-10  loose +50 / bank -50            (account without a group)
-//   2025-12-31  wages +400 / bank -400          (exactly `to`)
+//   2025-12-31  wages +400 / bank -400          (exactly `to`; the wages
+//                                                line has a cost center)
 //   2026 has no fiscal year, so nothing can be posted after `to`; the
 //   boundary is exercised by narrowing the range instead.
 let cookie: string;
@@ -25,6 +26,7 @@ let companyId: string;
 let salesId: string;
 let wagesId: string;
 let looseId: string;
+let costCenterId: string;
 
 interface AccountRow {
   accountId: string;
@@ -95,13 +97,19 @@ async function seedAccounts(
   return ids;
 }
 
-const line = (accountId: string, amount: number, type: 'debit' | 'credit') => ({
+const line = (
+  accountId: string,
+  amount: number,
+  type: 'debit' | 'credit',
+  lineCostCenterId: string | null = null,
+) => ({
   accountId,
   amount,
   description: '',
   type,
   vatRate: 0,
   vatAmount: 0,
+  costCenterId: lineCostCenterId,
 });
 
 const itemOf = (body: StatementBody, mainClass: string): Row => {
@@ -151,6 +159,8 @@ beforeAll(async () => {
     });
   }
 
+  costCenterId = (await createCostCenter(companyId, '100')).id;
+
   const post = (date: string, lines: ReturnType<typeof line>[]) =>
     journalEntryService.create(companyId, ctx.user.id, {
       voucherType: 'MEMOVOUCHER',
@@ -163,7 +173,10 @@ beforeAll(async () => {
   await post('2024-06-15', [line(bankId, 300, 'debit'), line(salesId, 300, 'credit')]);
   await post('2025-01-01', [line(bankId, 1000, 'debit'), line(salesId, 1000, 'credit')]);
   await post('2025-06-10', [line(looseId, 50, 'debit'), line(bankId, 50, 'credit')]);
-  await post('2025-12-31', [line(wagesId, 400, 'debit'), line(bankId, 400, 'credit')]);
+  await post('2025-12-31', [
+    line(wagesId, 400, 'debit', costCenterId),
+    line(bankId, 400, 'credit'),
+  ]);
 });
 
 afterAll(async () => {
@@ -260,6 +273,30 @@ describe('GET /api/income-statement', () => {
         comparisonAmount: 300,
       },
     ]);
+  });
+
+  it('narrows both columns to a cost center', async () => {
+    const res = await getStatement({ ...fy2025, ...fy2024, costCenterId });
+    expect(res.status).toBe(200);
+    const body = res.body as StatementBody & { data: { costCenterId: string | null } };
+    expect(body.data.costCenterId).toBe(costCenterId);
+    // Only the wages line is tagged; the sales postings fall outside.
+    expect(itemOf(body, 'REVENUE').amount).toBe(0);
+    expect(itemOf(body, 'REVENUE').comparisonAmount).toBe(0);
+    expect(itemOf(body, 'PERSONNEL_EXPENSES').amount).toBe(-400);
+    expect(subtotalOf(body, 'PROFIT_FOR_THE_FINANCIAL_YEAR').amount).toBe(-400);
+  });
+
+  it('reports costCenterId as null when unfiltered', async () => {
+    const res = await getStatement(fy2025);
+    expect(res.body.data.costCenterId).toBeNull();
+  });
+
+  it('404s for a cost center belonging to another company', async () => {
+    const other = await createTestContext('ADMIN');
+    const foreign = await createCostCenter(other.company.id, '100');
+    const res = await getStatement({ ...fy2025, costCenterId: foreign.id });
+    expect(res.status).toBe(404);
   });
 
   it('requires the period', async () => {

@@ -68,6 +68,10 @@ export async function addMember(companyId: string, role: Role) {
   return { user, cookie: `session=${token}` };
 }
 
+export async function createCostCenter(companyId: string, code: string, name = `Kustannuspaikka ${code}`) {
+  return prisma.costCenter.create({ data: { companyId, code, name } });
+}
+
 // Account numbers are unique per company; randomize to avoid collisions.
 export async function createAccount(companyId: string, name: string) {
   const chart = await prisma.chartOfAccounts.findUniqueOrThrow({ where: { companyId } });

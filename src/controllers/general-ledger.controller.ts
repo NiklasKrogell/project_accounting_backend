@@ -11,6 +11,7 @@ const listQuerySchema = z
     from: dateOnlySchema.optional(),
     to: dateOnlySchema.optional(),
     accountId: z.string().uuid().optional(),
+    costCenterId: z.string().uuid().optional(),
     take: z.coerce.number().int().min(1).max(200).default(50),
     skip: z.coerce.number().int().min(0).default(0),
   })
@@ -53,6 +54,7 @@ function serializeLedger(ledger: LedgerResult['ledgers'][number]) {
       voucherNumber: line.journalEntry.voucherNumber,
       entryDescription: line.journalEntry.description,
       description: line.description,
+      costCenterId: line.costCenterId,
       debit: line.type === 'debit' ? line.amount : 0,
       credit: line.type === 'credit' ? line.amount : 0,
       vatRate: line.vatRate,

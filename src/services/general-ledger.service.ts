@@ -28,6 +28,7 @@ export interface GeneralLedgerFilter {
   from?: Date | undefined; // UTC midnight, inclusive
   to?: Date | undefined; // UTC midnight, inclusive
   accountId?: string | undefined;
+  costCenterId?: string | undefined;
   take: number;
   skip: number;
 }
@@ -64,13 +65,20 @@ export const generalLedgerService = {
       ...(periodDate ? { date: periodDate } : {}),
     };
 
+    // Applied to the account probe, the lines AND the opening balances, so a
+    // cost center ledger's opening, lines and closing all describe the same
+    // slice of the books.
+    const costCenterFilter: Prisma.JournalEntryLineWhereInput = filter.costCenterId
+      ? { costCenterId: filter.costCenterId }
+      : {};
+
     // Built once and shared by findMany and count, so a page can never
     // describe a different population than meta.total does.
     const accountWhere: Prisma.AccountWhereInput = filter.accountId
       ? // An explicitly requested account is always returned, even with no
         // movement, so "no postings" is distinguishable from "wrong company".
         { companyId, id: filter.accountId }
-      : { companyId, lines: { some: { journalEntry: entryFilter } } };
+      : { companyId, lines: { some: { ...costCenterFilter, journalEntry: entryFilter } } };
 
     // One transaction: the account page's ids are needed before the line and
     // opening queries can run, and three independent statements would let a
@@ -80,6 +88,10 @@ export const generalLedgerService = {
       if (filter.accountId) {
         const found = await tx.account.count({ where: { id: filter.accountId, companyId } });
         if (found === 0) throw AppError.notFound('Account not found');
+      }
+      if (filter.costCenterId) {
+        const found = await tx.costCenter.count({ where: { id: filter.costCenterId, companyId } });
+        if (found === 0) throw AppError.notFound('Cost center not found');
       }
 
       const [pageAccounts, accountTotal] = await Promise.all([
@@ -102,7 +114,7 @@ export const generalLedgerService = {
       }
 
       const pageLines = await tx.journalEntryLine.findMany({
-        where: { accountId: { in: accountIds }, journalEntry: entryFilter },
+        where: { ...costCenterFilter, accountId: { in: accountIds }, journalEntry: entryFilter },
         include: { journalEntry: { select: entryColumns } },
         // Lines WITHIN one entry share a date and createdAt, so the only
         // tie-break left is the uuid: their relative order is stable across
@@ -123,6 +135,7 @@ export const generalLedgerService = {
         ? await tx.journalEntryLine.groupBy({
             by: ['accountId', 'type'],
             where: {
+              ...costCenterFilter,
               accountId: { in: accountIds },
               journalEntry: { companyId, date: { lt: filter.from } },
             },

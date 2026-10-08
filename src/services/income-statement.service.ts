@@ -1,5 +1,6 @@
 import type { Prisma } from '../generated/prisma/client';
 import { prisma } from '../lib/prisma';
+import { AppError } from '../lib/AppError';
 import { addDays } from '../lib/dateOnly';
 import { buildIncomeStatement, type AccountSideSum } from '../lib/incomeStatement';
 
@@ -22,18 +23,22 @@ export interface DateRange {
 export interface IncomeStatementFilter {
   period: DateRange;
   comparison?: DateRange | undefined;
+  // Narrows both columns to the lines tagged with this cost center.
+  costCenterId?: string | undefined;
 }
 
 async function sumByAccountAndSide(
   tx: Prisma.TransactionClient,
   companyId: string,
   range: DateRange,
+  costCenterId: string | undefined,
 ): Promise<AccountSideSum[]> {
   // `type` MUST be in `by` — amounts are always positive, so summing without
   // splitting by side would yield gross turnover, not a net amount.
   const rows = await tx.journalEntryLine.groupBy({
     by: ['accountId', 'type'],
     where: {
+      ...(costCenterId ? { costCenterId } : {}),
       journalEntry: {
         companyId,
         // Inclusive end date: entry dates are timestamps, not DATE columns,
@@ -55,9 +60,14 @@ export const incomeStatementService = {
     // One transaction so both columns and the account classification describe
     // the same state of the books.
     const { accounts, periodSums, comparisonSums } = await prisma.$transaction(async (tx) => {
-      const period = await sumByAccountAndSide(tx, companyId, filter.period);
+      if (filter.costCenterId) {
+        const found = await tx.costCenter.count({ where: { id: filter.costCenterId, companyId } });
+        if (found === 0) throw AppError.notFound('Cost center not found');
+      }
+
+      const period = await sumByAccountAndSide(tx, companyId, filter.period, filter.costCenterId);
       const comparison = filter.comparison
-        ? await sumByAccountAndSide(tx, companyId, filter.comparison)
+        ? await sumByAccountAndSide(tx, companyId, filter.comparison, filter.costCenterId)
         : null;
 
       const accountIds = [

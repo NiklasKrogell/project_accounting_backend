@@ -21,6 +21,11 @@ const lineSchema = z.object({
   vatRate: z.number().min(0).max(100),
   vatAmount: z.number().min(0),
   type: z.enum(['debit', 'credit']),
+  costCenterId: z
+    .string()
+    .uuid()
+    .nullish()
+    .transform((v) => v ?? null),
 });
 
 const createEntrySchema = z.object({
@@ -60,6 +65,7 @@ function serializeEntry(entry: JournalEntry & { lines: JournalEntryLine[] }) {
       vatRate: line.vatRate,
       vatAmount: line.vatAmount,
       type: line.type,
+      costCenterId: line.costCenterId,
     })),
   };
 }
