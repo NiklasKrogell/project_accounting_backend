@@ -342,6 +342,20 @@ describe('VAT accounts', () => {
     });
   });
 
+  it('belong to one company and leave other companies untouched', async () => {
+    const receivable = await createAccount(companyId, 'Arvonlisäverosaaminen');
+    await request(app)
+      .put('/api/chart-of-accounts/vat-accounts')
+      .set('Cookie', cookie)
+      .send({ vatReceivableAccountId: receivable.id, vatPayableAccountId: null });
+
+    const other = await createTestContext('ADMIN');
+    const res = await request(app)
+      .get('/api/chart-of-accounts/vat-accounts')
+      .set('Cookie', other.cookie);
+    expect(res.body.data).toEqual({ vatReceivableAccountId: null, vatPayableAccountId: null });
+  });
+
   it("rejects another company's account with 400", async () => {
     const other = await createTestContext('ADMIN');
     const foreign = await createAccount(other.company.id, 'Vieras tili');

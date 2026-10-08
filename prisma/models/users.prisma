@@ -14,10 +14,23 @@ model User {
   // A user can belong to multiple companies; role/isAdmin live on the
   // CompanyUser membership (per-company facts, not global user facts).
   memberships    CompanyUser[]
+  settings       UserSettings?
   sessions       Session[]
   tokens         VerificationToken[]
   journalEntries JournalEntry[]
   attachments    Attachment[]
+}
+
+// Personal preferences. Keyed by the user alone, so they follow the user into
+// every company they belong to (company-specific settings never go here). The
+// row is created lazily on the first save: no row means all defaults (see
+// src/services/user-settings.service.ts).
+model UserSettings {
+  userId    String   @id
+  language  String   @default("fi") // UI language; validated against SUPPORTED_LANGUAGES
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 enum Role {

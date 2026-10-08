@@ -8,6 +8,7 @@ import {
   deleteAllSessionsForUser,
   hashToken,
 } from '../lib/session';
+import { userSettingsService } from './user-settings.service';
 import type { TokenPurpose, User } from '../generated/prisma/client';
 
 const TOKEN_TTL_MS = 60 * 60 * 1000; // one-time tokens live 1 hour
@@ -134,6 +135,8 @@ export const authService = {
     });
     return {
       user: sanitizeUser(user),
+      // Sent along so the UI can apply them (e.g. the language) at boot.
+      settings: await userSettingsService.get(userId),
       memberships: user.memberships.map((m) => ({
         companyId: m.companyId,
         companyName: m.company.name,

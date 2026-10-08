@@ -3,6 +3,7 @@ import type { Request, Response } from 'express';
 import { healthRoutes } from './health.routes';
 import { authRoutes } from './auth.routes';
 import { companyRoutes } from './company.routes';
+import { userSettingsRoutes } from './user-settings.routes';
 import { fiscalYearRoutes } from './fiscal-year.routes';
 import { accountingPeriodRoutes } from './accounting-period.routes';
 import { journalEntryRoutes } from './journal-entry.routes';
@@ -25,6 +26,9 @@ routes.use('/health', healthRoutes);
 // Auth & account management (own gating rules inside)
 routes.use('/api/auth', authRoutes);
 routes.use('/api/companies', companyRoutes);
+// Personal settings follow the user across companies, so they sit outside the
+// paywall. Company settings are company data and mount on the gated router.
+routes.use('/api/settings/user', userSettingsRoutes);
 
 // --- Everything below is the paywalled application area. ---
 // All future accounting data routes mount behind this same gate and must scope
