@@ -42,14 +42,36 @@ describe('lineVatAmount', () => {
 describe('buildVatLines', () => {
   it('posts VAT on a credit line to the payable account, on the credit side', () => {
     expect(buildVatLines([line('debit', 125.5, 0), line('credit', 100, 25.5, 'Myynti')])).toEqual([
-      { vatAccount: 'payable', amount: 25.5, type: 'credit', vatRate: 25.5, description: 'Myynti' },
+      {
+        vatAccount: 'payable',
+        amount: 25.5,
+        type: 'credit',
+        description: 'Myynti',
+        costCenterId: null,
+      },
     ]);
   });
 
   it('posts VAT on a debit line to the receivable account, on the debit side', () => {
     expect(buildVatLines([line('debit', 100, 13.5, 'Osto'), line('credit', 113.5, 0)])).toEqual([
-      { vatAccount: 'receivable', amount: 13.5, type: 'debit', vatRate: 13.5, description: 'Osto' },
+      {
+        vatAccount: 'receivable',
+        amount: 13.5,
+        type: 'debit',
+        description: 'Osto',
+        costCenterId: null,
+      },
     ]);
+  });
+
+  it('gives the VAT row the cost center of the line it comes from', () => {
+    const vatLines = buildVatLines([
+      { ...line('credit', 100, 25.5), costCenterId: 'cc-1' },
+      { ...line('credit', 100, 25.5), costCenterId: 'cc-2' },
+      line('credit', 100, 25.5),
+      line('debit', 376.5, 0),
+    ]);
+    expect(vatLines.map((l) => l.costCenterId)).toEqual(['cc-1', 'cc-2', null]);
   });
 
   it('generates one row per line with VAT, in line order', () => {
@@ -59,10 +81,7 @@ describe('buildVatLines', () => {
       line('credit', 200, 10),
       line('debit', 395.5, 0),
     ]);
-    expect(vatLines.map((l) => [l.vatRate, l.amount])).toEqual([
-      [25.5, 25.5],
-      [10, 20],
-    ]);
+    expect(vatLines.map((l) => l.amount)).toEqual([25.5, 20]);
   });
 
   it('generates nothing for lines without VAT or whose VAT rounds to zero', () => {

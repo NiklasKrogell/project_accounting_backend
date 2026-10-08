@@ -109,8 +109,9 @@ async function buildStoredLines(
   ];
 }
 
-// A VAT row belongs to the balance sheet, not to the cost center of the line
-// it was computed from, and carries no VAT of its own.
+// A VAT row carries no VAT rate or VAT amount of its own, and keeps the cost
+// center of the line it was computed from (already checked to be the
+// company's, with the entered lines).
 async function resolveVatAccounts(
   tx: Prisma.TransactionClient,
   companyId: string,
@@ -133,10 +134,10 @@ async function resolveVatAccounts(
       accountId,
       amount: line.amount,
       description: line.description,
-      vatRate: line.vatRate,
+      vatRate: 0,
       vatAmount: 0,
       type: line.type,
-      costCenterId: null,
+      costCenterId: line.costCenterId,
       isVat: true,
     };
   });

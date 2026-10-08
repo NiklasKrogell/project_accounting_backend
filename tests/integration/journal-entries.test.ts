@@ -175,8 +175,8 @@ describe('POST /api/journal-entries', () => {
     );
     expect(byAccount.get(salesAccountId)).toBe(costCenter.id);
     expect(byAccount.get(bankAccountId)).toBeNull();
-    // The VAT row does not inherit the cost center of the line it came from.
-    expect(byAccount.get(vatPayableAccountId)).toBeNull();
+    // The VAT row has the cost center of the line it came from.
+    expect(byAccount.get(vatPayableAccountId)).toBe(costCenter.id);
   });
 
   it("rejects another company's cost center with 400", async () => {
@@ -282,7 +282,8 @@ describe('PUT /api/journal-entries/:id', () => {
     const tagged = res.body.data.lines.filter(
       (l: { costCenterId: string | null }) => l.costCenterId === costCenter.id,
     );
-    expect(tagged).toHaveLength(1);
+    // The sales line and the VAT row generated from it.
+    expect(tagged).toHaveLength(2);
   });
 
   it('rejects moving an entry into a closed period with 409', async () => {
@@ -336,7 +337,8 @@ describe('VAT rows', () => {
       accountId: vatPayableAccountId,
       amount: 25.5,
       type: 'credit',
-      vatRate: 25.5,
+      // The row is the tax itself: no rate or VAT amount of its own.
+      vatRate: 0,
       vatAmount: 0,
       costCenterId: null,
     });
@@ -365,7 +367,7 @@ describe('VAT rows', () => {
       accountId: vatReceivableAccountId,
       amount: 27,
       type: 'debit',
-      vatRate: 13.5,
+      vatRate: 0,
     });
   });
 
@@ -441,7 +443,7 @@ describe('VAT rows', () => {
     ]);
     expect(changed.status).toBe(200);
     expect(vatRowsOf(changed.body)).toHaveLength(1);
-    expect(vatRowsOf(changed.body)[0]).toMatchObject({ amount: 20, vatRate: 10 });
+    expect(vatRowsOf(changed.body)[0]).toMatchObject({ amount: 20, vatRate: 0 });
 
     const withoutVat = await put([
       { accountId: bankAccountId, amount: 200, type: 'debit', vatRate: 0 },

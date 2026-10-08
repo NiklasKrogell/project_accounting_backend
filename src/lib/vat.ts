@@ -20,15 +20,18 @@ export interface VatSourceLine {
   vatRate: number;
   type: EntrySide;
   description: string;
+  costCenterId?: string | null;
 }
 
-// A VAT row to post, before its account is resolved.
+// A VAT row to post, before its account is resolved. It is the tax itself, so
+// it has no VAT rate or VAT amount of its own; the description and the cost
+// center are those of the line it was computed from.
 export interface GeneratedVatLine {
   vatAccount: VatAccountKind;
   amount: number;
   type: EntrySide;
-  vatRate: number;
   description: string;
+  costCenterId: string | null;
 }
 
 // VAT in cents on a net amount in cents. The rate is a percentage taken to two
@@ -56,10 +59,8 @@ export function buildVatLines(lines: readonly VatSourceLine[]): GeneratedVatLine
       vatAccount: line.type === 'debit' ? 'receivable' : 'payable',
       amount: fromCents(cents),
       type: line.type,
-      // The rate the row was computed at, so VAT can later be reported per rate
-      // from the VAT account's own rows.
-      vatRate: line.vatRate,
       description: line.description,
+      costCenterId: line.costCenterId ?? null,
     });
   }
   return vatLines;
