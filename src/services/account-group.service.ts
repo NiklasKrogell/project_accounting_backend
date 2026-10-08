@@ -1,6 +1,11 @@
-import type { AccountMainClass, IncomeStatementSubItem } from '../generated/prisma/client';
+import type {
+  AccountMainClass,
+  BalanceSheetItem,
+  IncomeStatementSubItem,
+} from '../generated/prisma/client';
 import { prisma } from '../lib/prisma';
 import { AppError } from '../lib/AppError';
+import { balanceSheetItemBelongsTo } from '../lib/balanceSheetScheme';
 import { subItemBelongsTo } from '../lib/incomeStatementScheme';
 import { getChartOfAccountsId } from './chart-of-accounts.service';
 
@@ -10,11 +15,12 @@ export interface AccountGroupInput {
   name: string;
   mainClass: AccountMainClass;
   incomeStatementSubItem: IncomeStatementSubItem | null;
+  balanceSheetItem: BalanceSheetItem | null;
 }
 
 export const accountGroupService = {
   async create(companyId: string, input: AccountGroupInput) {
-    assertSubItemMatchesClass(input);
+    assertClassificationMatchesClass(input);
     await assertNameAvailable(companyId, input.name);
     const chartOfAccountsId = await getChartOfAccountsId(companyId);
     return prisma.accountGroup.create({
@@ -24,6 +30,7 @@ export const accountGroupService = {
         name: input.name,
         mainClass: input.mainClass,
         incomeStatementSubItem: input.incomeStatementSubItem,
+        balanceSheetItem: input.balanceSheetItem,
       },
       include: accountsByNumber,
     });
@@ -47,7 +54,7 @@ export const accountGroupService = {
   },
 
   async update(companyId: string, id: string, input: AccountGroupInput) {
-    assertSubItemMatchesClass(input);
+    assertClassificationMatchesClass(input);
     const group = await prisma.accountGroup.findFirst({ where: { id, companyId } });
     if (!group) throw AppError.notFound('Account group not found');
     if (input.name !== group.name) {
@@ -59,6 +66,7 @@ export const accountGroupService = {
         name: input.name,
         mainClass: input.mainClass,
         incomeStatementSubItem: input.incomeStatementSubItem,
+        balanceSheetItem: input.balanceSheetItem,
       },
       include: accountsByNumber,
     });
@@ -79,13 +87,17 @@ export const accountGroupService = {
 
 // A sub-item only means something under its own numbered item of the income
 // statement layout; "Eläkekulut" on a revenue group would put the group's
-// postings nowhere the report can show them.
-function assertSubItemMatchesClass(input: AccountGroupInput): void {
+// postings nowhere the report can show them. The same goes for a balance
+// sheet item and its lettered section.
+function assertClassificationMatchesClass(input: AccountGroupInput): void {
   if (
     input.incomeStatementSubItem &&
     !subItemBelongsTo(input.mainClass, input.incomeStatementSubItem)
   ) {
     throw AppError.badRequest('Income statement sub-item does not belong to the main class');
+  }
+  if (input.balanceSheetItem && !balanceSheetItemBelongsTo(input.mainClass, input.balanceSheetItem)) {
+    throw AppError.badRequest('Balance sheet item does not belong to the main class');
   }
 }
 

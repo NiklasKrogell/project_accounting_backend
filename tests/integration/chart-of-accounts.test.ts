@@ -114,6 +114,41 @@ describe('account groups', () => {
     expect(updated.status).toBe(400);
   });
 
+  it('stores a balance sheet item that belongs to the main class and clears it when omitted', async () => {
+    const created = await request(app)
+      .post('/api/account-groups')
+      .set('Cookie', cookie)
+      .send({
+        name: 'Poistoero',
+        mainClass: 'ACCUMULATED_APPROPRIATIONS',
+        balanceSheetItem: 'DEPRECIATION_DIFFERENCE',
+      });
+    expect(created.status).toBe(201);
+    expect(created.body.data.balanceSheetItem).toBe('DEPRECIATION_DIFFERENCE');
+    expect(created.body.data.incomeStatementSubItem).toBeNull();
+
+    const cleared = await request(app)
+      .put(`/api/account-groups/${created.body.data.id}`)
+      .set('Cookie', cookie)
+      .send({ name: 'Poistoero', mainClass: 'ACCUMULATED_APPROPRIATIONS' });
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.data.balanceSheetItem).toBeNull();
+  });
+
+  it('rejects a balance sheet item of another main class with 400', async () => {
+    const wrongSection = await request(app)
+      .post('/api/account-groups')
+      .set('Cookie', cookie)
+      .send({ name: 'Väärä erä', mainClass: 'FIXED_ASSETS', balanceSheetItem: 'CASH_AND_BANK' });
+    expect(wrongSection.status).toBe(400);
+
+    const onIncomeStatement = await request(app)
+      .post('/api/account-groups')
+      .set('Cookie', cookie)
+      .send({ name: 'Väärä laskelma', mainClass: 'REVENUE', balanceSheetItem: 'CASH_AND_BANK' });
+    expect(onIncomeStatement.status).toBe(400);
+  });
+
   it('accepts the main classes split out of appropriations and taxes', async () => {
     for (const mainClass of ['OTHER_OPERATING_INCOME', 'INCOME_TAXES', 'OTHER_DIRECT_TAXES']) {
       const res = await request(app)

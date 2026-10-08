@@ -1,4 +1,9 @@
-import type { AccountMainClass, IncomeStatementSubItem } from '../generated/prisma/client';
+import type {
+  AccountMainClass,
+  BalanceSheetItem,
+  IncomeStatementSubItem,
+} from '../generated/prisma/client';
+import { balanceSheetItemBelongsTo } from './balanceSheetScheme';
 import { subItemBelongsTo } from './incomeStatementScheme';
 
 // Curated Finnish standard chart of accounts for small and medium enterprises,
@@ -19,114 +24,254 @@ export interface SeedGroup {
   // Lettered sub-item of the income statement layout, where the group's main
   // class has them.
   subItem?: IncomeStatementSubItem;
+  // Item of the balance sheet layout, for balance sheet groups.
+  balanceSheetItem?: BalanceSheetItem;
   accounts: SeedAccount[];
 }
 
 export const DEFAULT_CHART_OF_ACCOUNTS: SeedGroup[] = [
-  // --- Vastaavaa: pysyvät vastaavat ---
+  // --- Vastaavaa: A Pysyvät vastaavat ---
+  // One group per item of the statutory layout (PMA 1753/2015, Annex V) here
+  // too, so a freshly seeded chart produces a complete balance sheet.
+
+  // I Aineettomat hyödykkeet
   {
-    name: 'Aineettomat hyödykkeet',
+    name: 'Kehittämismenot',
     mainClass: 'FIXED_ASSETS',
-    accounts: [
-      { number: '1000', name: 'Kehittämismenot' },
-      { number: '1010', name: 'Aineettomat oikeudet' },
-      { number: '1020', name: 'Liikearvo' },
-      { number: '1030', name: 'Muut pitkävaikutteiset menot' },
-    ],
+    balanceSheetItem: 'DEVELOPMENT_EXPENDITURE',
+    accounts: [{ number: '1000', name: 'Kehittämismenot' }],
   },
   {
-    name: 'Aineelliset hyödykkeet',
+    name: 'Aineettomat oikeudet',
     mainClass: 'FIXED_ASSETS',
-    accounts: [
-      { number: '1100', name: 'Maa- ja vesialueet' },
-      { number: '1120', name: 'Rakennukset ja rakennelmat' },
-      { number: '1150', name: 'Koneet ja kalusto' },
-      { number: '1180', name: 'Muut aineelliset hyödykkeet' },
-    ],
+    balanceSheetItem: 'INTANGIBLE_RIGHTS',
+    accounts: [{ number: '1010', name: 'Aineettomat oikeudet' }],
   },
   {
-    name: 'Sijoitukset',
+    name: 'Liikearvo',
     mainClass: 'FIXED_ASSETS',
-    accounts: [
-      { number: '1300', name: 'Osuudet saman konsernin yrityksissä' },
-      { number: '1350', name: 'Muut osakkeet ja osuudet' },
-    ],
+    balanceSheetItem: 'GOODWILL',
+    accounts: [{ number: '1020', name: 'Liikearvo' }],
+  },
+  {
+    name: 'Muut aineettomat hyödykkeet',
+    mainClass: 'FIXED_ASSETS',
+    balanceSheetItem: 'OTHER_INTANGIBLE_ASSETS',
+    accounts: [{ number: '1030', name: 'Muut aineettomat hyödykkeet' }],
   },
 
-  // --- Vastaavaa: vaihtuvat vastaavat ---
+  // II Aineelliset hyödykkeet
   {
-    name: 'Vaihto-omaisuus',
+    name: 'Maa- ja vesialueet',
+    mainClass: 'FIXED_ASSETS',
+    balanceSheetItem: 'LAND_AND_WATERS',
+    accounts: [{ number: '1100', name: 'Maa- ja vesialueet' }],
+  },
+  {
+    name: 'Rakennukset ja rakennelmat',
+    mainClass: 'FIXED_ASSETS',
+    balanceSheetItem: 'BUILDINGS_AND_STRUCTURES',
+    accounts: [{ number: '1120', name: 'Rakennukset ja rakennelmat' }],
+  },
+  {
+    name: 'Koneet ja kalusto',
+    mainClass: 'FIXED_ASSETS',
+    balanceSheetItem: 'MACHINERY_AND_EQUIPMENT',
+    accounts: [{ number: '1150', name: 'Koneet ja kalusto' }],
+  },
+  {
+    name: 'Muut aineelliset hyödykkeet',
+    mainClass: 'FIXED_ASSETS',
+    balanceSheetItem: 'OTHER_TANGIBLE_ASSETS',
+    accounts: [{ number: '1180', name: 'Muut aineelliset hyödykkeet' }],
+  },
+
+  // III Sijoitukset
+  {
+    name: 'Osuudet saman konsernin yrityksissä',
+    mainClass: 'FIXED_ASSETS',
+    balanceSheetItem: 'INVESTMENT_HOLDINGS_IN_GROUP_UNDERTAKINGS',
+    accounts: [{ number: '1300', name: 'Osuudet saman konsernin yrityksissä' }],
+  },
+  {
+    name: 'Muut osakkeet ja osuudet',
+    mainClass: 'FIXED_ASSETS',
+    balanceSheetItem: 'INVESTMENT_OTHER_SHARES_AND_HOLDINGS',
+    accounts: [{ number: '1350', name: 'Muut osakkeet ja osuudet' }],
+  },
+
+  // --- Vastaavaa: B Vaihtuvat vastaavat ---
+
+  // I Vaihto-omaisuus
+  {
+    name: 'Aineet ja tarvikkeet',
     mainClass: 'CURRENT_ASSETS',
+    balanceSheetItem: 'RAW_MATERIALS_AND_CONSUMABLES',
+    accounts: [{ number: '1500', name: 'Aineet ja tarvikkeet' }],
+  },
+  {
+    name: 'Valmiit tuotteet ja tavarat',
+    mainClass: 'CURRENT_ASSETS',
+    balanceSheetItem: 'FINISHED_GOODS',
     accounts: [
-      { number: '1500', name: 'Aineet ja tarvikkeet' },
       { number: '1540', name: 'Valmiit tuotteet' },
       { number: '1560', name: 'Tavarat' },
     ],
   },
+
+  // II Saamiset. The seeded receivables are short-term; a company with
+  // long-term ones adds groups for them.
   {
-    name: 'Saamiset',
+    name: 'Myyntisaamiset',
     mainClass: 'CURRENT_ASSETS',
+    balanceSheetItem: 'SHORT_TERM_TRADE_RECEIVABLES',
+    accounts: [{ number: '1700', name: 'Myyntisaamiset' }],
+  },
+  {
+    name: 'Muut saamiset',
+    mainClass: 'CURRENT_ASSETS',
+    balanceSheetItem: 'SHORT_TERM_OTHER_RECEIVABLES',
     accounts: [
-      { number: '1700', name: 'Myyntisaamiset' },
       { number: '1730', name: 'Muut saamiset' },
-      { number: '1750', name: 'Siirtosaamiset' },
       { number: '1763', name: 'Arvonlisäverosaaminen' },
     ],
   },
   {
+    name: 'Siirtosaamiset',
+    mainClass: 'CURRENT_ASSETS',
+    balanceSheetItem: 'SHORT_TERM_PREPAYMENTS_AND_ACCRUED_INCOME',
+    accounts: [{ number: '1750', name: 'Siirtosaamiset' }],
+  },
+
+  // IV Rahat ja pankkisaamiset
+  {
     name: 'Rahat ja pankkisaamiset',
     mainClass: 'CURRENT_ASSETS',
+    balanceSheetItem: 'CASH_AND_BANK',
     accounts: [
       { number: '1900', name: 'Käteisvarat' },
       { number: '1910', name: 'Pankkitili' },
     ],
   },
 
-  // --- Vastattavaa: oma pääoma ---
+  // --- Vastattavaa: A Oma pääoma ---
   {
-    name: 'Oma pääoma',
+    name: 'Osake- tai osuuspääoma',
     mainClass: 'EQUITY',
-    accounts: [
-      { number: '2000', name: 'Osake- tai osuuspääoma' },
-      { number: '2010', name: 'Ylikurssirahasto' },
-      { number: '2040', name: 'Sijoitetun vapaan oman pääoman rahasto' },
-      { number: '2050', name: 'Edellisten tilikausien voitto/tappio' },
-      { number: '2070', name: 'Tilikauden voitto/tappio' },
-      { number: '2080', name: 'Yksityiskäyttötili' },
-    ],
+    balanceSheetItem: 'SHARE_CAPITAL',
+    accounts: [{ number: '2000', name: 'Osake- tai osuuspääoma' }],
+  },
+  {
+    name: 'Ylikurssirahasto',
+    mainClass: 'EQUITY',
+    balanceSheetItem: 'SHARE_PREMIUM_RESERVE',
+    accounts: [{ number: '2010', name: 'Ylikurssirahasto' }],
+  },
+  {
+    name: 'Sijoitetun vapaan oman pääoman rahasto',
+    mainClass: 'EQUITY',
+    balanceSheetItem: 'INVESTED_UNRESTRICTED_EQUITY_RESERVE',
+    accounts: [{ number: '2040', name: 'Sijoitetun vapaan oman pääoman rahasto' }],
   },
 
-  // --- Vastattavaa: pakolliset varaukset ---
+  // The balance sheet derives both result items from the income statement
+  // accounts (see src/lib/balanceSheet.ts); these accounts are for entries a
+  // company books to them itself, such as a dividend out of earlier profits.
   {
-    name: 'Pakolliset varaukset',
+    name: 'Edellisten tilikausien voitto (tappio)',
+    mainClass: 'EQUITY',
+    balanceSheetItem: 'RETAINED_EARNINGS',
+    accounts: [{ number: '2050', name: 'Edellisten tilikausien voitto/tappio' }],
+  },
+  {
+    name: 'Tilikauden voitto (tappio)',
+    mainClass: 'EQUITY',
+    balanceSheetItem: 'PROFIT_FOR_THE_FINANCIAL_YEAR',
+    accounts: [{ number: '2070', name: 'Tilikauden voitto/tappio' }],
+  },
+
+  // Private drawings and investments of a sole trader: part of the "muu
+  // vastaava pääoma" of item I.
+  {
+    name: 'Yksityistilit',
+    mainClass: 'EQUITY',
+    balanceSheetItem: 'SHARE_CAPITAL',
+    accounts: [{ number: '2080', name: 'Yksityiskäyttötili' }],
+  },
+
+  // --- Vastattavaa: B Tilinpäätössiirtojen kertymä ---
+  {
+    name: 'Poistoero',
+    mainClass: 'ACCUMULATED_APPROPRIATIONS',
+    balanceSheetItem: 'DEPRECIATION_DIFFERENCE',
+    accounts: [{ number: '2200', name: 'Poistoero' }],
+  },
+  {
+    name: 'Verotusperusteiset varaukset',
+    mainClass: 'ACCUMULATED_APPROPRIATIONS',
+    balanceSheetItem: 'TAX_BASED_PROVISIONS',
+    accounts: [{ number: '2250', name: 'Verotusperusteiset varaukset' }],
+  },
+
+  // --- Vastattavaa: C Pakolliset varaukset ---
+  {
+    name: 'Eläkevaraukset',
     mainClass: 'PROVISIONS',
-    accounts: [
-      { number: '2300', name: 'Eläkevaraukset' },
-      { number: '2320', name: 'Muut pakolliset varaukset' },
-    ],
+    balanceSheetItem: 'PENSION_PROVISIONS',
+    accounts: [{ number: '2300', name: 'Eläkevaraukset' }],
+  },
+  {
+    name: 'Muut pakolliset varaukset',
+    mainClass: 'PROVISIONS',
+    balanceSheetItem: 'OTHER_PROVISIONS',
+    accounts: [{ number: '2320', name: 'Muut pakolliset varaukset' }],
   },
 
-  // --- Vastattavaa: vieras pääoma ---
+  // --- Vastattavaa: D Vieras pääoma ---
+
+  // Pitkäaikainen
   {
-    name: 'Pitkäaikainen vieras pääoma',
+    name: 'Lainat rahoituslaitoksilta',
     mainClass: 'LIABILITIES',
-    accounts: [
-      { number: '2600', name: 'Lainat rahoituslaitoksilta' },
-      { number: '2620', name: 'Muut pitkäaikaiset velat' },
-    ],
+    balanceSheetItem: 'LONG_TERM_LOANS_FROM_FINANCIAL_INSTITUTIONS',
+    accounts: [{ number: '2600', name: 'Lainat rahoituslaitoksilta' }],
   },
   {
-    name: 'Lyhytaikainen vieras pääoma',
+    name: 'Muut pitkäaikaiset velat',
     mainClass: 'LIABILITIES',
+    balanceSheetItem: 'LONG_TERM_OTHER_LIABILITIES',
+    accounts: [{ number: '2620', name: 'Muut pitkäaikaiset velat' }],
+  },
+
+  // Lyhytaikainen
+  {
+    name: 'Ostovelat',
+    mainClass: 'LIABILITIES',
+    balanceSheetItem: 'SHORT_TERM_TRADE_PAYABLES',
+    accounts: [{ number: '2700', name: 'Ostovelat' }],
+  },
+  {
+    name: 'Saadut ennakot',
+    mainClass: 'LIABILITIES',
+    balanceSheetItem: 'SHORT_TERM_ADVANCES_RECEIVED',
+    accounts: [{ number: '2710', name: 'Saadut ennakot' }],
+  },
+  {
+    name: 'Muut lyhytaikaiset velat',
+    mainClass: 'LIABILITIES',
+    balanceSheetItem: 'SHORT_TERM_OTHER_LIABILITIES',
     accounts: [
-      { number: '2700', name: 'Ostovelat' },
-      { number: '2710', name: 'Saadut ennakot' },
       { number: '2730', name: 'Muut lyhytaikaiset velat' },
-      { number: '2740', name: 'Siirtovelat' },
       { number: '2920', name: 'Ennakonpidätysvelka' },
       { number: '2925', name: 'Sosiaaliturvamaksuvelka' },
       { number: '2939', name: 'Arvonlisäverovelka' },
     ],
+  },
+  {
+    name: 'Siirtovelat',
+    mainClass: 'LIABILITIES',
+    balanceSheetItem: 'SHORT_TERM_ACCRUALS_AND_DEFERRED_INCOME',
+    accounts: [{ number: '2740', name: 'Siirtovelat' }],
   },
 
   // --- Tuloslaskelma ---
@@ -262,7 +407,7 @@ export const DEFAULT_CHART_OF_ACCOUNTS: SeedGroup[] = [
 
 // Guards the seed data's internal consistency (used by a unit test): account
 // numbers must be globally unique within the chart, group names distinct, and
-// every sub-item must belong to its group's main class.
+// every sub-item and balance sheet item must belong to its group's main class.
 export function assertDefaultChartIntegrity(chart: SeedGroup[] = DEFAULT_CHART_OF_ACCOUNTS): void {
   const numbers = new Set<string>();
   const groupNames = new Set<string>();
@@ -273,6 +418,14 @@ export function assertDefaultChartIntegrity(chart: SeedGroup[] = DEFAULT_CHART_O
     groupNames.add(group.name);
     if (group.subItem && !subItemBelongsTo(group.mainClass, group.subItem)) {
       throw new Error(`Sub-item ${group.subItem} does not belong to ${group.mainClass}: ${group.name}`);
+    }
+    if (
+      group.balanceSheetItem &&
+      !balanceSheetItemBelongsTo(group.mainClass, group.balanceSheetItem)
+    ) {
+      throw new Error(
+        `Balance sheet item ${group.balanceSheetItem} does not belong to ${group.mainClass}: ${group.name}`,
+      );
     }
     for (const account of group.accounts) {
       if (numbers.has(account.number)) {

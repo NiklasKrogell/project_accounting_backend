@@ -30,6 +30,7 @@ export function serializeAccount(account: Account & { accountGroup?: AccountGrou
                 name: account.accountGroup.name,
                 mainClass: account.accountGroup.mainClass,
                 incomeStatementSubItem: account.accountGroup.incomeStatementSubItem,
+                balanceSheetItem: account.accountGroup.balanceSheetItem,
               }
             : null,
         }

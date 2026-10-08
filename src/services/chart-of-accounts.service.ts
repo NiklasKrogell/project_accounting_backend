@@ -38,6 +38,7 @@ export const chartOfAccountsService = {
             name: group.name,
             mainClass: group.mainClass,
             incomeStatementSubItem: group.subItem ?? null,
+            balanceSheetItem: group.balanceSheetItem ?? null,
           },
         });
         await tx.account.createMany({

@@ -14,14 +14,15 @@ import {
   type IncomeStatementSubtotal,
   type SchemeSubItem,
 } from './incomeStatementScheme';
-import { fromCents, toCents } from './money';
+import { fromCents } from './money';
+import {
+  netCentsByAccount,
+  type AccountSideSum,
+  type StatementAccountRow,
+  type StatementAmounts,
+} from './statement';
 
-// One groupBy(accountId, type) row: the sum of an account's lines on one side.
-export interface AccountSideSum {
-  accountId: string;
-  type: string;
-  amount: number;
-}
+export type { AccountSideSum, StatementAccountRow, StatementAmounts };
 
 export interface StatementAccountInput {
   id: string;
@@ -31,18 +32,6 @@ export interface StatementAccountInput {
     mainClass: AccountMainClass;
     incomeStatementSubItem: IncomeStatementSubItem | null;
   } | null;
-}
-
-// comparisonAmount is null throughout when no comparison period was requested.
-export interface StatementAmounts {
-  amount: number;
-  comparisonAmount: number | null;
-}
-
-export interface StatementAccountRow extends StatementAmounts {
-  accountId: string;
-  accountNumber: string;
-  accountName: string;
 }
 
 export interface StatementSubItem extends StatementAmounts {
@@ -76,21 +65,6 @@ export interface IncomeStatement {
   // they can't be placed (or even known to be income statement accounts) and
   // are kept out of every total.
   unclassified: StatementAccountRow[];
-}
-
-// Net credit-positive cents per account. `type` is a plain String column, so
-// an unexpected value must not be silently signed — see ledger.ts signedCents.
-function netCentsByAccount(sums: readonly AccountSideSum[]): Map<string, number> {
-  const byAccount = new Map<string, number>();
-  for (const sum of sums) {
-    const cents = toCents(sum.amount);
-    let signed: number;
-    if (sum.type === 'credit') signed = cents;
-    else if (sum.type === 'debit') signed = -cents;
-    else throw new Error(`Unknown journal entry line type: ${JSON.stringify(sum.type)}`);
-    byAccount.set(sum.accountId, (byAccount.get(sum.accountId) ?? 0) + signed);
-  }
-  return byAccount;
 }
 
 interface Cents {
