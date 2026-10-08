@@ -14,17 +14,25 @@ enum VoucherType {
 
 // Pääluokan pääryhmä (tulotilit/menotilit/vastaavaa/vastattavaa) johdetaan
 // sovelluskoodissa mainClass-arvosta, ei tallenneta erikseen tähän skeemaan.
+//
+// Tuloslaskelman pääluokat vastaavat yksi yhteen PMA:n (1753/2015) liitteen I
+// kululajikohtaisen tuloslaskelmakaavan numeroituja eriä, ja ovat kaavan
+// järjestyksessä: tilikartta ja tuloslaskelma lajittelevat enum-järjestyksen
+// mukaan. Kaavan rakenne on src/lib/incomeStatementScheme.ts:ssä.
 enum AccountMainClass {
-  // Tulotilit
-  REVENUE // Liikevaihto
-
-  // Menotilit
-  MATERIALS_AND_SERVICES // Materiaalit ja palvelut
-  PERSONNEL_EXPENSES // Henkilöstökulut
-  DEPRECIATION // Poistot ja arvonalentumiset
-  OTHER_OPERATING_EXPENSES // Liiketoiminnan muut kulut
-  FINANCIAL_INCOME_AND_EXPENSES // Rahoitustuotot ja -kulut
-  APPROPRIATIONS_AND_TAXES // Tilinpäätössiirrot ja verot
+  // Tuloslaskelma
+  REVENUE // 1. Liikevaihto
+  CHANGE_IN_FINISHED_GOODS_INVENTORIES // 2. Valmiiden ja keskeneräisten tuotteiden varastojen muutos
+  PRODUCTION_FOR_OWN_USE // 3. Valmistus omaan käyttöön
+  OTHER_OPERATING_INCOME // 4. Liiketoiminnan muut tuotot
+  MATERIALS_AND_SERVICES // 5. Materiaalit ja palvelut
+  PERSONNEL_EXPENSES // 6. Henkilöstökulut
+  DEPRECIATION // 7. Poistot ja arvonalentumiset
+  OTHER_OPERATING_EXPENSES // 8. Liiketoiminnan muut kulut
+  FINANCIAL_INCOME_AND_EXPENSES // 10. Rahoitustuotot ja -kulut
+  APPROPRIATIONS // 12. Tilinpäätössiirrot
+  INCOME_TAXES // 13. Tuloverot
+  OTHER_DIRECT_TAXES // 14. Muut välittömät verot
 
   // Vastaavaa (tase)
   FIXED_ASSETS // Pysyvät vastaavat
@@ -34,6 +42,44 @@ enum AccountMainClass {
   EQUITY // Oma pääoma
   PROVISIONS // Pakolliset varaukset
   LIABILITIES // Vieras pääoma
+}
+
+// PMA:n liitteen I tuloslaskelmakaavan kirjaimin merkityt alakohdat. Tiliryhmä
+// voi kuulua yhteen alakohtaan; alakohdan pitää kuulua ryhmän pääluokkaan
+// (tarkistetaan sovelluskoodissa, ks. subItemBelongsTo).
+enum IncomeStatementSubItem {
+  // 5. Materiaalit ja palvelut
+  PURCHASES // a) aa) Ostot tilikauden aikana
+  CHANGE_IN_INVENTORIES // a) ab) Varastojen muutos
+  EXTERNAL_SERVICES // b) Ulkopuoliset palvelut
+
+  // 6. Henkilöstökulut
+  WAGES_AND_SALARIES // a) Palkat ja palkkiot
+  PENSION_EXPENSES // b) ba) Eläkekulut
+  OTHER_SOCIAL_SECURITY_EXPENSES // b) bb) Muut henkilösivukulut
+
+  // 7. Poistot ja arvonalentumiset
+  PLANNED_DEPRECIATION // a) Suunnitelman mukaiset poistot
+  IMPAIRMENT_OF_FIXED_ASSETS // b) Arvonalentumiset pysyvien vastaavien hyödykkeistä
+  EXCEPTIONAL_IMPAIRMENT_OF_CURRENT_ASSETS // c) Vaihtuvien vastaavien poikkeukselliset arvonalentumiset
+
+  // 10. Rahoitustuotot ja -kulut. *_GROUP_UNDERTAKINGS-arvot ovat kaavan
+  // "erikseen samaan konserniin kuuluvilta/kuuluville yrityksille" -erittelyjä.
+  INCOME_FROM_GROUP_UNDERTAKINGS // a) Tuotot osuuksista saman konsernin yrityksissä
+  INCOME_FROM_PARTICIPATING_INTERESTS // b) Tuotot osuuksista omistusyhteysyrityksissä
+  INCOME_FROM_OTHER_FIXED_ASSET_INVESTMENTS // c) Tuotot muista pysyvien vastaavien sijoituksista
+  INCOME_FROM_OTHER_FIXED_ASSET_INVESTMENTS_GROUP_UNDERTAKINGS
+  OTHER_INTEREST_AND_FINANCIAL_INCOME // d) Muut korko- ja rahoitustuotot
+  OTHER_INTEREST_AND_FINANCIAL_INCOME_GROUP_UNDERTAKINGS
+  IMPAIRMENT_OF_FIXED_ASSET_INVESTMENTS // e) Arvonalentumiset pysyvien vastaavien sijoituksista
+  IMPAIRMENT_OF_CURRENT_ASSET_SECURITIES // f) Arvonalentumiset vaihtuvien vastaavien rahoitusarvopapereista
+  INTEREST_AND_OTHER_FINANCIAL_EXPENSES // g) Korkokulut ja muut rahoituskulut
+  INTEREST_AND_OTHER_FINANCIAL_EXPENSES_GROUP_UNDERTAKINGS
+
+  // 12. Tilinpäätössiirrot
+  CHANGE_IN_DEPRECIATION_DIFFERENCE // a) Poistoeron muutos
+  CHANGE_IN_TAX_BASED_PROVISIONS // b) Verotusperusteisten varausten muutos
+  GROUP_CONTRIBUTION // c) Konserniavustus
 }
 
 // Tilikartta: jokaisella yrityksellä on täsmälleen yksi tilikartta, joka
@@ -57,6 +103,9 @@ model AccountGroup {
   id        String           @id @default(uuid())
   name      String
   mainClass AccountMainClass
+  // Tuloslaskelmakaavan alakohta. Null taseryhmillä, alakohdattomien erien
+  // ryhmillä ja ryhmillä, joita ei ole vielä kohdistettu alakohtaan.
+  incomeStatementSubItem IncomeStatementSubItem?
   companyId String
   company   Company          @relation(fields: [companyId], references: [id])
   accounts  Account[]

@@ -32,7 +32,13 @@ export const chartOfAccountsService = {
 
       for (const group of DEFAULT_CHART_OF_ACCOUNTS) {
         const created = await tx.accountGroup.create({
-          data: { companyId, chartOfAccountsId, name: group.name, mainClass: group.mainClass },
+          data: {
+            companyId,
+            chartOfAccountsId,
+            name: group.name,
+            mainClass: group.mainClass,
+            incomeStatementSubItem: group.subItem ?? null,
+          },
         });
         await tx.account.createMany({
           data: group.accounts.map((account) => ({

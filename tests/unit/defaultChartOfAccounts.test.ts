@@ -3,6 +3,8 @@ import {
   DEFAULT_CHART_OF_ACCOUNTS,
   assertDefaultChartIntegrity,
 } from '../../src/lib/defaultChartOfAccounts';
+import { mainClassSchema } from '../../src/lib/apiSchemas';
+import { subItemsOf } from '../../src/lib/incomeStatementScheme';
 
 describe('default chart of accounts', () => {
   it('has internally consistent data (unique numbers and group names)', () => {
@@ -35,8 +37,31 @@ describe('default chart of accounts', () => {
     }
   });
 
-  it('covers all twelve account main classes', () => {
+  it('covers every main class except the two rarely needed income statement items', () => {
     const mainClasses = new Set(DEFAULT_CHART_OF_ACCOUNTS.map((g) => g.mainClass));
-    expect(mainClasses.size).toBe(12);
+    const missing = mainClassSchema.options.filter((c) => !mainClasses.has(c));
+    expect(missing).toEqual(['CHANGE_IN_FINISHED_GOODS_INVENTORIES', 'PRODUCTION_FOR_OWN_USE']);
+  });
+
+  it('detects a sub-item that does not belong to the group main class', () => {
+    const broken = [
+      {
+        name: 'A',
+        mainClass: 'REVENUE' as const,
+        subItem: 'PENSION_EXPENSES' as const,
+        accounts: [{ number: '3000', name: 'x' }],
+      },
+    ];
+    expect(() => assertDefaultChartIntegrity(broken)).toThrow(/does not belong/);
+  });
+
+  it('gives every group of a sub-itemised income statement class a sub-item', () => {
+    // Otherwise a freshly seeded chart would show unallocated amounts on the
+    // income statement.
+    for (const group of DEFAULT_CHART_OF_ACCOUNTS) {
+      if (subItemsOf(group.mainClass).length > 0) {
+        expect(group.subItem, group.name).toBeDefined();
+      }
+    }
   });
 });

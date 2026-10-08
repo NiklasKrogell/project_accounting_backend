@@ -2,12 +2,15 @@ import type { Request, Response } from 'express';
 import { z } from 'zod';
 import type { Account, AccountGroup } from '../generated/prisma/client';
 import { accountGroupService } from '../services/account-group.service';
-import { idParamsSchema, mainClassSchema } from '../lib/apiSchemas';
+import { idParamsSchema, incomeStatementSubItemSchema, mainClassSchema } from '../lib/apiSchemas';
 import { serializeAccount } from './account.controller';
 
+// incomeStatementSubItem is part of the full-replace body: leaving it out on
+// update clears it, like any other omitted optional field would.
 const groupBodySchema = z.object({
   name: z.string().trim().min(1).max(100),
   mainClass: mainClassSchema,
+  incomeStatementSubItem: incomeStatementSubItemSchema.nullish().transform((v) => v ?? null),
 });
 
 export function serializeAccountGroup(group: AccountGroup & { accounts?: Account[] }) {
@@ -15,6 +18,7 @@ export function serializeAccountGroup(group: AccountGroup & { accounts?: Account
     id: group.id,
     name: group.name,
     mainClass: group.mainClass,
+    incomeStatementSubItem: group.incomeStatementSubItem,
     createdAt: group.createdAt,
     updatedAt: group.updatedAt,
     ...(group.accounts ? { accounts: group.accounts.map(serializeAccount) } : {}),

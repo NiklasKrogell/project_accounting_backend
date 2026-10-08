@@ -1,4 +1,5 @@
-import type { AccountMainClass } from '../generated/prisma/client';
+import type { AccountMainClass, IncomeStatementSubItem } from '../generated/prisma/client';
+import { subItemBelongsTo } from './incomeStatementScheme';
 
 // Curated Finnish standard chart of accounts for small and medium enterprises,
 // used to seed a new company (chart-of-accounts.service.ts). Numbering follows
@@ -15,6 +16,9 @@ export interface SeedAccount {
 export interface SeedGroup {
   name: string;
   mainClass: AccountMainClass;
+  // Lettered sub-item of the income statement layout, where the group's main
+  // class has them.
+  subItem?: IncomeStatementSubItem;
   accounts: SeedAccount[];
 }
 
@@ -125,7 +129,13 @@ export const DEFAULT_CHART_OF_ACCOUNTS: SeedGroup[] = [
     ],
   },
 
-  // --- Tuloslaskelma: liikevaihto ---
+  // --- Tuloslaskelma ---
+  // One group per leaf of the statutory layout (PMA 1753/2015, Annex I), so
+  // a freshly seeded chart produces a complete income statement. Items 2
+  // (varastojen muutos, valmiit tuotteet) and 3 (valmistus omaan käyttöön)
+  // are left out: few small companies need them, and they can be added.
+
+  // 1. Liikevaihto
   {
     name: 'Liikevaihto',
     mainClass: 'REVENUE',
@@ -137,36 +147,62 @@ export const DEFAULT_CHART_OF_ACCOUNTS: SeedGroup[] = [
     ],
   },
 
-  // --- Tuloslaskelma: materiaalit ja palvelut ---
+  // 4. Liiketoiminnan muut tuotot
   {
-    name: 'Materiaalit ja palvelut',
+    name: 'Liiketoiminnan muut tuotot',
+    mainClass: 'OTHER_OPERATING_INCOME',
+    accounts: [{ number: '3600', name: 'Liiketoiminnan muut tuotot' }],
+  },
+
+  // 5. Materiaalit ja palvelut
+  {
+    name: 'Ostot tilikauden aikana',
     mainClass: 'MATERIALS_AND_SERVICES',
-    accounts: [
-      { number: '4000', name: 'Ostot tilikauden aikana' },
-      { number: '4400', name: 'Varastojen muutos' },
-      { number: '4500', name: 'Ulkopuoliset palvelut' },
-    ],
+    subItem: 'PURCHASES',
+    accounts: [{ number: '4000', name: 'Ostot tilikauden aikana' }],
+  },
+  {
+    name: 'Varastojen muutos',
+    mainClass: 'MATERIALS_AND_SERVICES',
+    subItem: 'CHANGE_IN_INVENTORIES',
+    accounts: [{ number: '4400', name: 'Varastojen muutos' }],
+  },
+  {
+    name: 'Ulkopuoliset palvelut',
+    mainClass: 'MATERIALS_AND_SERVICES',
+    subItem: 'EXTERNAL_SERVICES',
+    accounts: [{ number: '4500', name: 'Ulkopuoliset palvelut' }],
   },
 
-  // --- Tuloslaskelma: henkilöstökulut ---
+  // 6. Henkilöstökulut
   {
-    name: 'Henkilöstökulut',
+    name: 'Palkat ja palkkiot',
     mainClass: 'PERSONNEL_EXPENSES',
-    accounts: [
-      { number: '5000', name: 'Palkat ja palkkiot' },
-      { number: '5100', name: 'Eläkekulut' },
-      { number: '5200', name: 'Muut henkilösivukulut' },
-    ],
+    subItem: 'WAGES_AND_SALARIES',
+    accounts: [{ number: '5000', name: 'Palkat ja palkkiot' }],
+  },
+  {
+    name: 'Eläkekulut',
+    mainClass: 'PERSONNEL_EXPENSES',
+    subItem: 'PENSION_EXPENSES',
+    accounts: [{ number: '5100', name: 'Eläkekulut' }],
+  },
+  {
+    name: 'Muut henkilösivukulut',
+    mainClass: 'PERSONNEL_EXPENSES',
+    subItem: 'OTHER_SOCIAL_SECURITY_EXPENSES',
+    accounts: [{ number: '5200', name: 'Muut henkilösivukulut' }],
   },
 
-  // --- Tuloslaskelma: poistot ---
+  // 7. Poistot ja arvonalentumiset
   {
-    name: 'Poistot ja arvonalentumiset',
+    name: 'Suunnitelman mukaiset poistot',
     mainClass: 'DEPRECIATION',
+    subItem: 'PLANNED_DEPRECIATION',
     accounts: [{ number: '6800', name: 'Suunnitelman mukaiset poistot' }],
   },
 
-  // --- Tuloslaskelma: liiketoiminnan muut kulut ---
+  // 8. Liiketoiminnan muut kulut
   {
     name: 'Liiketoiminnan muut kulut',
     mainClass: 'OTHER_OPERATING_EXPENSES',
@@ -181,32 +217,52 @@ export const DEFAULT_CHART_OF_ACCOUNTS: SeedGroup[] = [
     ],
   },
 
-  // --- Tuloslaskelma: rahoitustuotot ja -kulut ---
+  // 10. Rahoitustuotot ja -kulut
   {
-    name: 'Rahoitustuotot ja -kulut',
+    name: 'Muut korko- ja rahoitustuotot',
     mainClass: 'FINANCIAL_INCOME_AND_EXPENSES',
+    subItem: 'OTHER_INTEREST_AND_FINANCIAL_INCOME',
     accounts: [
       { number: '8000', name: 'Korkotuotot' },
       { number: '8100', name: 'Muut rahoitustuotot' },
+    ],
+  },
+  {
+    name: 'Korkokulut ja muut rahoituskulut',
+    mainClass: 'FINANCIAL_INCOME_AND_EXPENSES',
+    subItem: 'INTEREST_AND_OTHER_FINANCIAL_EXPENSES',
+    accounts: [
       { number: '8200', name: 'Korkokulut' },
       { number: '8300', name: 'Muut rahoituskulut' },
     ],
   },
 
-  // --- Tuloslaskelma: tilinpäätössiirrot ja verot ---
+  // 12. Tilinpäätössiirrot
   {
-    name: 'Tilinpäätössiirrot ja verot',
-    mainClass: 'APPROPRIATIONS_AND_TAXES',
-    accounts: [
-      { number: '9000', name: 'Poistoeron muutos' },
-      { number: '9200', name: 'Tuloverot' },
-      { number: '9300', name: 'Muut välittömät verot' },
-    ],
+    name: 'Poistoeron muutos',
+    mainClass: 'APPROPRIATIONS',
+    subItem: 'CHANGE_IN_DEPRECIATION_DIFFERENCE',
+    accounts: [{ number: '9000', name: 'Poistoeron muutos' }],
+  },
+
+  // 13. Tuloverot
+  {
+    name: 'Tuloverot',
+    mainClass: 'INCOME_TAXES',
+    accounts: [{ number: '9200', name: 'Tuloverot' }],
+  },
+
+  // 14. Muut välittömät verot
+  {
+    name: 'Muut välittömät verot',
+    mainClass: 'OTHER_DIRECT_TAXES',
+    accounts: [{ number: '9300', name: 'Muut välittömät verot' }],
   },
 ];
 
 // Guards the seed data's internal consistency (used by a unit test): account
-// numbers must be globally unique within the chart and group names distinct.
+// numbers must be globally unique within the chart, group names distinct, and
+// every sub-item must belong to its group's main class.
 export function assertDefaultChartIntegrity(chart: SeedGroup[] = DEFAULT_CHART_OF_ACCOUNTS): void {
   const numbers = new Set<string>();
   const groupNames = new Set<string>();
@@ -215,6 +271,9 @@ export function assertDefaultChartIntegrity(chart: SeedGroup[] = DEFAULT_CHART_O
       throw new Error(`Duplicate group name in default chart: ${group.name}`);
     }
     groupNames.add(group.name);
+    if (group.subItem && !subItemBelongsTo(group.mainClass, group.subItem)) {
+      throw new Error(`Sub-item ${group.subItem} does not belong to ${group.mainClass}: ${group.name}`);
+    }
     for (const account of group.accounts) {
       if (numbers.has(account.number)) {
         throw new Error(`Duplicate account number in default chart: ${account.number}`);

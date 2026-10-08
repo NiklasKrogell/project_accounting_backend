@@ -67,6 +67,68 @@ describe('account groups', () => {
     expect(list.body.data.map((g: { name: string }) => g.name)).toContain('Liikevaihto');
   });
 
+  it('stores a sub-item that belongs to the main class and clears it when omitted', async () => {
+    const created = await request(app)
+      .post('/api/account-groups')
+      .set('Cookie', cookie)
+      .send({
+        name: 'Eläkekulut',
+        mainClass: 'PERSONNEL_EXPENSES',
+        incomeStatementSubItem: 'PENSION_EXPENSES',
+      });
+    expect(created.status).toBe(201);
+    expect(created.body.data.incomeStatementSubItem).toBe('PENSION_EXPENSES');
+
+    // PUT is a full replace: no sub-item in the body means no sub-item.
+    const cleared = await request(app)
+      .put(`/api/account-groups/${created.body.data.id}`)
+      .set('Cookie', cookie)
+      .send({ name: 'Eläkekulut', mainClass: 'PERSONNEL_EXPENSES' });
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.data.incomeStatementSubItem).toBeNull();
+  });
+
+  it('rejects a sub-item of another main class with 400', async () => {
+    const created = await request(app)
+      .post('/api/account-groups')
+      .set('Cookie', cookie)
+      .send({
+        name: 'Väärä alakohta',
+        mainClass: 'REVENUE',
+        incomeStatementSubItem: 'PENSION_EXPENSES',
+      });
+    expect(created.status).toBe(400);
+
+    const group = await request(app)
+      .post('/api/account-groups')
+      .set('Cookie', cookie)
+      .send({ name: 'Palkat', mainClass: 'PERSONNEL_EXPENSES' });
+    const updated = await request(app)
+      .put(`/api/account-groups/${group.body.data.id}`)
+      .set('Cookie', cookie)
+      .send({
+        name: 'Palkat',
+        mainClass: 'PERSONNEL_EXPENSES',
+        incomeStatementSubItem: 'PLANNED_DEPRECIATION',
+      });
+    expect(updated.status).toBe(400);
+  });
+
+  it('accepts the main classes split out of appropriations and taxes', async () => {
+    for (const mainClass of ['OTHER_OPERATING_INCOME', 'INCOME_TAXES', 'OTHER_DIRECT_TAXES']) {
+      const res = await request(app)
+        .post('/api/account-groups')
+        .set('Cookie', cookie)
+        .send({ name: `Ryhmä ${mainClass}`, mainClass });
+      expect(res.status).toBe(201);
+    }
+    const gone = await request(app)
+      .post('/api/account-groups')
+      .set('Cookie', cookie)
+      .send({ name: 'Vanha luokka', mainClass: 'APPROPRIATIONS_AND_TAXES' });
+    expect(gone.status).toBe(400);
+  });
+
   it('rejects a duplicate group name with 409', async () => {
     await request(app)
       .post('/api/account-groups')
