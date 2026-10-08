@@ -2,6 +2,7 @@ import type { Prisma, VoucherType } from '../generated/prisma/client';
 import { prisma } from '../lib/prisma';
 import { AppError } from '../lib/AppError';
 import { addDays, normalizeToUtcDate } from '../lib/dateOnly';
+import { toCents } from '../lib/money';
 import { assertDateBookable, assertEntryEditable } from './fiscal-guard.service';
 
 export interface JournalEntryLineInput {
@@ -36,11 +37,7 @@ export interface ListJournalEntriesFilter {
 const withLines = { lines: true as const };
 
 // Double-entry: debits and credits must balance. Amounts are Floats in the
-// schema, so compare in cents to dodge binary rounding.
-function toCents(amount: number): number {
-  return Math.round(amount * 100);
-}
-
+// schema, so compare in cents to dodge binary rounding (see lib/money.ts).
 function validateLinesBalance(lines: JournalEntryLineInput[]): void {
   const debit = lines.filter((l) => l.type === 'debit').reduce((s, l) => s + toCents(l.amount), 0);
   const credit = lines.filter((l) => l.type === 'credit').reduce((s, l) => s + toCents(l.amount), 0);

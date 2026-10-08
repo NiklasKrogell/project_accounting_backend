@@ -186,4 +186,11 @@ model JournalEntryLine {
   type           String // "debit" or "credit"
   journalEntryId String
   journalEntry   JournalEntry @relation(fields: [journalEntryId], references: [id])
+
+  // Postgres does not index FK columns automatically. accountId serves the
+  // general-ledger queries (per-account line fetch, opening-balance groupBy,
+  // and the movement-in-range existence probe); journalEntryId serves the
+  // deleteMany in entry update/remove and the journal list's line fan-out.
+  @@index([accountId])
+  @@index([journalEntryId])
 }
