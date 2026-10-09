@@ -48,6 +48,9 @@ export const requireAuth = asyncHandler(async (req: Request, res: Response, next
         where: { id: session.id },
         data: { activeCompanyId: null },
       });
+      // Keep this request's copy in step, so /api/auth/me doesn't report a
+      // company the user is no longer in.
+      session.activeCompanyId = null;
     }
   }
 

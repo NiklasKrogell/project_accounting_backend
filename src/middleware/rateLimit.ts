@@ -19,6 +19,16 @@ export const signupLimiter = rateLimit({
   message: json429,
 });
 
+// Changing the password asks for the current one, so a stolen session could
+// otherwise guess at it.
+export const passwordChangeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: json429,
+});
+
 // Verification / password-reset token endpoints.
 export const tokenLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,

@@ -19,6 +19,9 @@ export const dateOnlySchema = z
 
 export const idParamsSchema = z.object({ id: z.string().uuid() });
 
+// The rule for a password a user chooses, wherever one is set.
+export const passwordSchema = z.string().min(10, 'Password must be at least 10 characters');
+
 // Mirrors the AccountMainClass Prisma enum; kept here so controllers validate
 // against it without importing the generated client.
 export const mainClassSchema = z.enum([

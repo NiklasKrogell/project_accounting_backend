@@ -1,8 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import type { Role } from '../generated/prisma/client';
-
-// Accounting access levels within a company, lowest to highest.
-const ROLE_ORDER: Role[] = ['VIEWER', 'LEDGER', 'ACCOUNTANT', 'ADMIN'];
+import { roleRank } from '../lib/roles';
 
 // Requires the caller's role in the active company to be at least `minRole`.
 // Must run after requireAuth (and typically requireActiveSubscription).
@@ -13,7 +11,7 @@ export function roleAtLeast(minRole: Role) {
       res.status(403).json({ error: { message: 'No active company selected' } });
       return;
     }
-    if (ROLE_ORDER.indexOf(membership.role) < ROLE_ORDER.indexOf(minRole)) {
+    if (roleRank(membership.role) < roleRank(minRole)) {
       res.status(403).json({ error: { message: 'Insufficient role for this action' } });
       return;
     }

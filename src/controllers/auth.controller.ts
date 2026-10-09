@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { authService, sanitizeUser } from '../services/auth.service';
+import { passwordSchema } from '../lib/apiSchemas';
 import {
   clearSessionCookie,
   deleteAllSessionsForUser,
@@ -10,16 +11,9 @@ import {
 
 const signupSchema = z.object({
   email: z.string().trim().email(),
-  password: z.string().min(10, 'Password must be at least 10 characters'),
+  password: passwordSchema,
   firstName: z.string().trim().min(1),
   lastName: z.string().trim().min(1),
-  companyName: z.string().trim().min(1),
-  businessId: z.string().trim().min(1),
-  billingEmail: z.string().trim().email(),
-  billingAddress: z.string().trim().min(1),
-  billingCity: z.string().trim().min(1),
-  billingPostalCode: z.string().trim().min(1),
-  billingCountry: z.string().trim().min(1),
   phone: z.string().trim().min(1).optional(),
 });
 
@@ -33,7 +27,11 @@ const verifyEmailSchema = z.object({ token: z.string().min(1) });
 const forgotPasswordSchema = z.object({ email: z.string().trim().email() });
 const resetPasswordSchema = z.object({
   token: z.string().min(1),
-  password: z.string().min(10, 'Password must be at least 10 characters'),
+  password: passwordSchema,
+});
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: passwordSchema,
 });
 
 // req.auth is always present in handlers mounted behind requireAuth.
@@ -44,14 +42,9 @@ function auth(req: Request) {
 export const authController = {
   async signup(req: Request, res: Response) {
     const input = signupSchema.parse(req.body);
-    const { user, company, sessionToken } = await authService.signup(input);
+    const { user, sessionToken } = await authService.signup(input);
     setSessionCookie(res, sessionToken);
-    res.status(201).json({
-      data: {
-        user: sanitizeUser(user),
-        company: { id: company.id, name: company.name, subscriptionStatus: company.subscriptionStatus },
-      },
-    });
+    res.status(201).json({ data: { user: sanitizeUser(user) } });
   },
 
   async login(req: Request, res: Response) {
@@ -111,5 +104,12 @@ export const authController = {
     const { token, password } = resetPasswordSchema.parse(req.body);
     await authService.resetPassword(token, password);
     res.json({ data: { reset: true } });
+  },
+
+  async changePassword(req: Request, res: Response) {
+    const { currentPassword, newPassword } = changePasswordSchema.parse(req.body);
+    const { user, session } = auth(req);
+    await authService.changePassword(user.id, session.id, currentPassword, newPassword);
+    res.json({ data: { changed: true } });
   },
 };

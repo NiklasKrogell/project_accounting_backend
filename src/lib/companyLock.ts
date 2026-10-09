@@ -25,3 +25,17 @@ export async function acquireFiscalReadLock(
 ): Promise<void> {
   await tx.$queryRaw`SELECT pg_advisory_xact_lock_shared(${LOCK_NS}::int, hashtext(${companyId}))::text`;
 }
+
+// A second per-company lock, in a namespace of its own, serializes changes to
+// who a company's members are and what they may do. Whoever takes it re-reads
+// the memberships involved before applying the rules, so two company
+// administrators acting on each other at the same moment can't both succeed
+// and leave the company without one.
+const MEMBERS_LOCK_NS = 0x4d454d42; // 'MEMB'
+
+export async function acquireMembersLock(
+  tx: Prisma.TransactionClient,
+  companyId: string,
+): Promise<void> {
+  await tx.$queryRaw`SELECT pg_advisory_xact_lock(${MEMBERS_LOCK_NS}::int, hashtext(${companyId}))::text`;
+}

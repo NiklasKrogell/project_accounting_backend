@@ -1,7 +1,12 @@
 import { Router } from 'express';
 import { authController } from '../controllers/auth.controller';
 import { requireAuth } from '../middleware/requireAuth';
-import { loginLimiter, signupLimiter, tokenLimiter } from '../middleware/rateLimit';
+import {
+  loginLimiter,
+  passwordChangeLimiter,
+  signupLimiter,
+  tokenLimiter,
+} from '../middleware/rateLimit';
 import { asyncHandler } from '../lib/asyncHandler';
 
 export const authRoutes = Router();
@@ -15,6 +20,14 @@ authRoutes.post('/reset-password', tokenLimiter, asyncHandler(authController.res
 
 // Authenticated — deliberately NOT subscription-gated: users must always be able
 // to see their state, switch companies, and log out, even when payment lapsed.
+// Not behind requirePasswordChanged either: these are all a user with a
+// temporary password can reach, change-password being the way out.
+authRoutes.post(
+  '/change-password',
+  passwordChangeLimiter,
+  requireAuth,
+  asyncHandler(authController.changePassword),
+);
 authRoutes.post('/logout', requireAuth, asyncHandler(authController.logout));
 authRoutes.post('/logout-all', requireAuth, asyncHandler(authController.logoutAll));
 authRoutes.get('/me', requireAuth, asyncHandler(authController.me));

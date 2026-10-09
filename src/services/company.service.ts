@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma';
+import { AppError } from '../lib/AppError';
 
 export interface CreateCompanyInput {
   name: string;
@@ -54,16 +55,28 @@ export const companyService = {
     }));
   },
 
-  // Create an additional company (e.g. an accountant adding a client business).
-  // The creator becomes its ADMIN; the new company starts PENDING_PAYMENT and
-  // pays its own subscription.
-  async create(userId: string, input: CreateCompanyInput) {
+  // Registers a company: a user's first one (signing up creates none), or an
+  // additional one (e.g. an accountant adding a client business). The creator
+  // becomes its ADMIN and company administrator; the new company starts
+  // PENDING_PAYMENT and pays its own subscription. It also becomes the active
+  // company of the session it was created from, in the same transaction, so
+  // the creator is never left with a company that exists but isn't selected.
+  async create(userId: string, sessionId: string, input: CreateCompanyInput) {
+    const taken = await prisma.company.findUnique({ where: { businessId: input.businessId } });
+    if (taken) {
+      throw AppError.conflict('A company with that business ID already exists');
+    }
+
     return prisma.$transaction(async (tx) => {
       const company = await tx.company.create({ data: input });
       await tx.companyUser.create({
         data: { userId, companyId: company.id, role: 'ADMIN', isAdmin: true },
       });
       await tx.chartOfAccounts.create({ data: { companyId: company.id } });
+      await tx.session.update({
+        where: { id: sessionId },
+        data: { activeCompanyId: company.id },
+      });
       return company;
     });
   },

@@ -5,6 +5,10 @@ model User {
   lastName        String
   email           String    @unique
   password_hash   String
+  // Set for an account a company administrator created with a temporary
+  // password: until the user has set a password of their own, only the auth
+  // routes answer them (src/middleware/requirePasswordChanged.ts).
+  mustChangePassword Boolean @default(false)
   phone           String?
   emailVerifiedAt DateTime?
   lastLogged      DateTime?
@@ -14,6 +18,10 @@ model User {
   // A user can belong to multiple companies; role/isAdmin live on the
   // CompanyUser membership (per-company facts, not global user facts).
   memberships    CompanyUser[]
+  // Invitations to companies waiting for this user's answer, and those this
+  // user has sent as a company administrator.
+  invitations     CompanyInvitation[] @relation("InvitationsReceived")
+  invitationsSent CompanyInvitation[] @relation("InvitationsSent")
   settings       UserSettings?
   sessions       Session[]
   tokens         VerificationToken[]

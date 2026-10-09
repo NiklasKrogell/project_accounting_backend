@@ -70,6 +70,30 @@ export async function addMember(companyId: string, role: Role, isAdmin = false) 
   return { user, cookie: `session=${token}` };
 }
 
+// A user who belongs to no company, as right after signing up, with a session
+// that has no active company.
+export async function createUserWithoutCompany() {
+  const suffix = randomUUID().slice(0, 8);
+  const user = await prisma.user.create({
+    data: {
+      firstName: 'Lone',
+      lastName: `User ${suffix}`,
+      email: `lone-${suffix}@example.com`,
+      password_hash: 'not-a-real-hash',
+    },
+  });
+  const token = randomBytes(24).toString('base64url');
+  await prisma.session.create({
+    data: {
+      tokenHash: createHash('sha256').update(token).digest('hex'),
+      userId: user.id,
+      activeCompanyId: null,
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+    },
+  });
+  return { user, cookie: `session=${token}` };
+}
+
 export async function createCostCenter(companyId: string, code: string, name = `Kustannuspaikka ${code}`) {
   return prisma.costCenter.create({ data: { companyId, code, name } });
 }
