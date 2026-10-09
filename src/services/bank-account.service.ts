@@ -7,6 +7,13 @@ export interface BankAccountInput {
   accountId: string;
 }
 
+export interface BankAccountUpdateInput extends BankAccountInput {
+  // Left as it is when omitted.
+  isActive?: boolean | undefined;
+}
+
+// Bank accounts are never deleted: one that is no longer needed is taken out
+// of use (isActive = false) and keeps its IBAN reserved.
 export const bankAccountService = {
   async create(companyId: string, input: BankAccountInput) {
     await assertIbanAvailable(companyId, input.iban);
@@ -20,7 +27,7 @@ export const bankAccountService = {
   async list(companyId: string) {
     return prisma.bankAccount.findMany({
       where: { companyId },
-      orderBy: { name: 'asc' },
+      orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
       include: { account: true },
     });
   },
@@ -34,7 +41,7 @@ export const bankAccountService = {
     return bankAccount;
   },
 
-  async update(companyId: string, id: string, input: BankAccountInput) {
+  async update(companyId: string, id: string, input: BankAccountUpdateInput) {
     const bankAccount = await prisma.bankAccount.findFirst({ where: { id, companyId } });
     if (!bankAccount) throw AppError.notFound('Bank account not found');
     if (input.iban !== bankAccount.iban) {
@@ -43,15 +50,14 @@ export const bankAccountService = {
     await assertAccountInCompany(companyId, input.accountId);
     return prisma.bankAccount.update({
       where: { id },
-      data: { name: input.name, iban: input.iban, accountId: input.accountId },
+      data: {
+        name: input.name,
+        iban: input.iban,
+        accountId: input.accountId,
+        ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+      },
       include: { account: true },
     });
-  },
-
-  async remove(companyId: string, id: string): Promise<void> {
-    const bankAccount = await prisma.bankAccount.findFirst({ where: { id, companyId } });
-    if (!bankAccount) throw AppError.notFound('Bank account not found');
-    await prisma.bankAccount.delete({ where: { id } });
   },
 };
 

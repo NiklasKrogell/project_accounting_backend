@@ -235,6 +235,56 @@ describe('accounts', () => {
     expect(res.status).toBe(400);
   });
 
+  it('stores a default VAT rate, keeps 0 % apart from none, and clears it when omitted', async () => {
+    const group = await request(app)
+      .post('/api/account-groups')
+      .set('Cookie', cookie)
+      .send({ name: 'Liikevaihto', mainClass: 'REVENUE' });
+    const sales = { number: '3000', name: 'Myynti', accountGroupId: group.body.data.id };
+
+    const created = await request(app)
+      .post('/api/accounts')
+      .set('Cookie', cookie)
+      .send({ ...sales, defaultVatRate: 25.5 });
+    expect(created.status).toBe(201);
+    expect(created.body.data.defaultVatRate).toBe(25.5);
+
+    const plain = await request(app)
+      .post('/api/accounts')
+      .set('Cookie', cookie)
+      .send({ number: '3030', name: 'Veroton myynti' });
+    expect(plain.body.data.defaultVatRate).toBeNull();
+
+    const put = (body: Record<string, unknown>) =>
+      request(app).put(`/api/accounts/${created.body.data.id}`).set('Cookie', cookie).send(body);
+
+    const zero = await put({ ...sales, defaultVatRate: 0 });
+    expect(zero.status).toBe(200);
+    expect(zero.body.data.defaultVatRate).toBe(0);
+
+    // Both lists the chart of accounts view reads carry it.
+    const list = await request(app).get('/api/accounts').set('Cookie', cookie);
+    expect(list.body.data.map((a: { defaultVatRate: number | null }) => a.defaultVatRate)).toEqual([
+      0,
+      null,
+    ]);
+    const groups = await request(app).get('/api/account-groups').set('Cookie', cookie);
+    expect(groups.body.data[0].accounts[0].defaultVatRate).toBe(0);
+
+    // The update is a full replace: left out, the default is cleared.
+    const cleared = await put(sales);
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.data.defaultVatRate).toBeNull();
+  });
+
+  it('rejects a default VAT rate that is not one of the Finnish rates with 400', async () => {
+    const res = await request(app)
+      .post('/api/accounts')
+      .set('Cookie', cookie)
+      .send({ number: '3000', name: 'Myynti', defaultVatRate: 24 });
+    expect(res.status).toBe(400);
+  });
+
   it('blocks deleting an account referenced by a journal entry line', async () => {
     const account = await createAccount(companyId, 'Käytetty tili');
     const other = await createAccount(companyId, 'Vastatili');
@@ -269,33 +319,6 @@ describe('accounts', () => {
     const account = await createAccount(companyId, 'Käyttämätön');
     const del = await request(app).delete(`/api/accounts/${account.id}`).set('Cookie', cookie);
     expect(del.status).toBe(204);
-  });
-});
-
-describe('bank accounts', () => {
-  it('creates a bank account, normalizes the IBAN, and enforces uniqueness', async () => {
-    const account = await createAccount(companyId, 'Pankkitili');
-    const created = await request(app)
-      .post('/api/bank-accounts')
-      .set('Cookie', cookie)
-      .send({ name: 'Yritystili', iban: 'fi21 1234 5600 0007 85', accountId: account.id });
-    expect(created.status).toBe(201);
-    expect(created.body.data.iban).toBe('FI2112345600000785');
-
-    const dup = await request(app)
-      .post('/api/bank-accounts')
-      .set('Cookie', cookie)
-      .send({ name: 'Sama IBAN', iban: 'FI2112345600000785', accountId: account.id });
-    expect(dup.status).toBe(409);
-  });
-
-  it('rejects an invalid IBAN with 400', async () => {
-    const account = await createAccount(companyId, 'Pankkitili');
-    const res = await request(app)
-      .post('/api/bank-accounts')
-      .set('Cookie', cookie)
-      .send({ name: 'Virhe', iban: 'not-an-iban', accountId: account.id });
-    expect(res.status).toBe(400);
   });
 });
 

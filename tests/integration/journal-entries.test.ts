@@ -693,6 +693,140 @@ describe('VAT rows', () => {
   });
 });
 
+// A company of its own, so switching its VAT registration off does not reach
+// the rest of the suite. Its VAT accounts are set: only the registration
+// stands in the way of a line with VAT.
+describe('VAT registration', () => {
+  const NOT_REGISTERED = 'The company is not VAT-registered, so entry lines cannot have a VAT rate';
+  let other: Awaited<ReturnType<typeof createTestContext>>;
+  let bankId: string;
+  let salesId: string;
+  let payableId: string;
+
+  const body = (overrides: Record<string, unknown> = {}) => ({
+    voucherType: 'SALES',
+    date: '2025-01-15',
+    description: 'Myyntilasku',
+    accountId: bankId,
+    lines: [
+      { accountId: bankId, amount: 125.5, type: 'debit', vatRate: 0 },
+      { accountId: salesId, amount: 100, type: 'credit', vatRate: 25.5 },
+    ],
+    ...overrides,
+  });
+  const withoutVat = () =>
+    body({
+      lines: [
+        { accountId: bankId, amount: 100, type: 'debit', vatRate: 0 },
+        { accountId: salesId, amount: 100, type: 'credit', vatRate: 0 },
+      ],
+    });
+  const post = (payload: Record<string, unknown>) =>
+    request(app).post('/api/journal-entries').set('Cookie', other.cookie).send(payload);
+  const setVatRegistered = (vatRegistered: boolean) =>
+    request(app).patch('/api/settings/company').set('Cookie', other.cookie).send({ vatRegistered });
+
+  beforeAll(async () => {
+    other = await createTestContext('ADMIN');
+    const otherCompanyId = other.company.id;
+    bankId = (await createAccount(otherCompanyId, 'Pankkitili')).id;
+    salesId = (await createAccount(otherCompanyId, 'Myynti')).id;
+    payableId = (await createAccount(otherCompanyId, 'Arvonlisäverovelka')).id;
+    const receivableId = (await createAccount(otherCompanyId, 'Arvonlisäverosaaminen')).id;
+    await prisma.chartOfAccounts.update({
+      where: { companyId: otherCompanyId },
+      data: { vatReceivableAccountId: receivableId, vatPayableAccountId: payableId },
+    });
+    await fiscalYearService.create(otherCompanyId, {
+      startDate: parseDateOnly('2025-01-01'),
+      endDate: parseDateOnly('2025-12-31'),
+      granularity: 'MONTH',
+    });
+  });
+
+  it('rejects a line with a VAT rate when the company is not VAT-registered', async () => {
+    // Registered by default: the entry is posted with its VAT row.
+    const registered = await post(body());
+    expect(registered.status).toBe(201);
+    expect(vatRowsOf(registered.body)).toHaveLength(1);
+
+    expect((await setVatRegistered(false)).status).toBe(200);
+    const rejected = await post(body());
+    expect(rejected.status).toBe(400);
+    expect(rejected.body.error.message).toBe(NOT_REGISTERED);
+
+    // The rate would only describe the line with automatic VAT off, but a
+    // company that books no VAT has no rate to describe either.
+    const byHand = await post(
+      body({
+        automaticVat: false,
+        lines: [
+          { accountId: bankId, amount: 125.5, type: 'debit', vatRate: 0 },
+          { accountId: salesId, amount: 100, type: 'credit', vatRate: 25.5 },
+          { accountId: payableId, amount: 25.5, type: 'credit', vatRate: 0 },
+        ],
+      }),
+    );
+    expect(byHand.status).toBe(400);
+    expect(byHand.body.error.message).toBe(NOT_REGISTERED);
+
+    // Lines without VAT are posted as before, and the entry made while the
+    // company was registered keeps its VAT row.
+    const plain = await post(withoutVat());
+    expect(plain.status).toBe(201);
+    expect(vatRowsOf(plain.body)).toHaveLength(0);
+    const earlier = await request(app)
+      .get(`/api/journal-entries/${registered.body.data.id}`)
+      .set('Cookie', other.cookie);
+    expect(vatRowsOf(earlier.body)).toHaveLength(1);
+
+    // Registering again lifts the restriction.
+    expect((await setVatRegistered(true)).status).toBe(200);
+    expect((await post(body())).status).toBe(201);
+  });
+
+  it('rejects giving a line a VAT rate when updating an entry', async () => {
+    await setVatRegistered(true);
+    const created = await post(body());
+    expect(created.status).toBe(201);
+    await setVatRegistered(false);
+    const put = (lines: unknown) =>
+      request(app)
+        .put(`/api/journal-entries/${created.body.data.id}`)
+        .set('Cookie', other.cookie)
+        .send({ date: '2025-01-15', description: 'Myyntilasku', accountId: bankId, lines });
+
+    const rejected = await put(body().lines);
+    expect(rejected.status).toBe(400);
+    expect(rejected.body.error.message).toBe(NOT_REGISTERED);
+
+    // Saved without VAT, the entry loses the VAT row it was created with.
+    const updated = await put(withoutVat().lines);
+    expect(updated.status).toBe(200);
+    expect(updated.body.data.lines).toHaveLength(2);
+    expect(vatRowsOf(updated.body)).toHaveLength(0);
+  });
+
+  it("leaves an account's default VAT rate off the lines when the company is not VAT-registered", async () => {
+    // The default only prefills the rate in the UI: a line is stored with the
+    // rate it was sent with, never with one derived from its account.
+    await prisma.account.update({ where: { id: salesId }, data: { defaultVatRate: 25.5 } });
+    await setVatRegistered(false);
+
+    const plain = await post(withoutVat());
+    expect(plain.status).toBe(201);
+    const lines: LineBody[] = plain.body.data.lines;
+    expect(lines).toHaveLength(2);
+    expect(lines.map((l) => l.vatRate)).toEqual([0, 0]);
+    expect(lines.map((l) => l.vatAmount)).toEqual([0, 0]);
+    expect(vatRowsOf(plain.body)).toHaveLength(0);
+
+    // The default itself is left as it is, for when the company registers.
+    const account = await request(app).get(`/api/accounts/${salesId}`).set('Cookie', other.cookie);
+    expect(account.body.data.defaultVatRate).toBe(25.5);
+  });
+});
+
 describe('DELETE /api/journal-entries/:id', () => {
   it('deletes an entry in an open period along with its lines', async () => {
     const created = await request(app)

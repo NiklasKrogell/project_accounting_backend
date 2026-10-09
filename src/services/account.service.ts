@@ -7,6 +7,8 @@ export interface AccountInput {
   number: string;
   name: string;
   accountGroupId?: string | null | undefined;
+  // One of VAT_RATES (lib/vat.ts), or null for no default.
+  defaultVatRate?: number | null | undefined;
 }
 
 export interface ListAccountsFilter {
@@ -21,7 +23,14 @@ export const accountService = {
     const accountGroupId = await resolveGroup(companyId, input.accountGroupId);
     const chartOfAccountsId = await getChartOfAccountsId(companyId);
     return prisma.account.create({
-      data: { companyId, chartOfAccountsId, number: input.number, name: input.name, accountGroupId },
+      data: {
+        companyId,
+        chartOfAccountsId,
+        number: input.number,
+        name: input.name,
+        accountGroupId,
+        defaultVatRate: input.defaultVatRate ?? null,
+      },
       include: { accountGroup: true },
     });
   },
@@ -61,7 +70,12 @@ export const accountService = {
     const accountGroupId = await resolveGroup(companyId, input.accountGroupId);
     return prisma.account.update({
       where: { id },
-      data: { number: input.number, name: input.name, accountGroupId },
+      data: {
+        number: input.number,
+        name: input.name,
+        accountGroupId,
+        defaultVatRate: input.defaultVatRate ?? null,
+      },
       include: { accountGroup: true },
     });
   },

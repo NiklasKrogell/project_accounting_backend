@@ -3,11 +3,21 @@ import { z } from 'zod';
 import type { Account, AccountGroup } from '../generated/prisma/client';
 import { accountService } from '../services/account.service';
 import { idParamsSchema, mainClassSchema } from '../lib/apiSchemas';
+import { VAT_RATES } from '../lib/vat';
 
+// defaultVatRate is part of the full-replace body: leaving it out on update
+// clears it. 0 is a default of its own, not the same as none.
 const accountBodySchema = z.object({
   number: z.string().trim().min(1).max(20),
   name: z.string().trim().min(1).max(100),
   accountGroupId: z.string().uuid().nullish(),
+  defaultVatRate: z
+    .number()
+    .refine((rate) => (VAT_RATES as readonly number[]).includes(rate), {
+      message: `Must be one of ${VAT_RATES.join(', ')}`,
+    })
+    .nullish()
+    .transform((v) => v ?? null),
 });
 
 const listQuerySchema = z.object({
@@ -22,6 +32,7 @@ export function serializeAccount(account: Account & { accountGroup?: AccountGrou
     number: account.number,
     name: account.name,
     accountGroupId: account.accountGroupId,
+    defaultVatRate: account.defaultVatRate,
     ...(account.accountGroup !== undefined
       ? {
           accountGroup: account.accountGroup

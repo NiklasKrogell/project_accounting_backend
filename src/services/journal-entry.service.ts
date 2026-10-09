@@ -4,6 +4,7 @@ import { AppError } from '../lib/AppError';
 import { addDays, normalizeToUtcDate } from '../lib/dateOnly';
 import { toCents } from '../lib/money';
 import { buildVatLines, splitVat, type GeneratedVatLine, type VatBasis } from '../lib/vat';
+import { companySettingsService } from './company-settings.service';
 import { assertDateBookable, assertEntryEditable } from './fiscal-guard.service';
 
 // A line as the caller enters it. Whether the amount is net of VAT or includes
@@ -113,6 +114,23 @@ async function assertCostCentersInCompany(
   }
 }
 
+// A company that is not VAT-registered books no VAT at all, so none of its
+// lines may carry a VAT rate — with automatic VAT off as well, where the rate
+// would only describe the line.
+async function assertVatAllowed(
+  tx: Prisma.TransactionClient,
+  companyId: string,
+  lines: JournalEntryLineInput[],
+): Promise<void> {
+  if (lines.every((l) => l.vatRate === 0)) return;
+  const { vatRegistered } = await companySettingsService.get(companyId, tx);
+  if (!vatRegistered) {
+    throw AppError.badRequest(
+      'The company is not VAT-registered, so entry lines cannot have a VAT rate',
+    );
+  }
+}
+
 // The rows to store for an entry: the entered lines at their net amount with
 // their VAT amount, followed by the VAT rows they generate on the company's
 // VAT accounts (none when automatic VAT is off).
@@ -205,6 +223,7 @@ export const journalEntryService = {
         ...input.lines.map((l) => l.accountId),
       ]);
       await assertCostCentersInCompany(tx, companyId, input.lines);
+      await assertVatAllowed(tx, companyId, input.lines);
       const lines = await buildStoredLines(tx, companyId, input.lines, vat);
       const voucherNumber = await allocateVoucherNumber(tx, companyId, input.voucherType);
       return tx.journalEntry.create({
@@ -275,6 +294,7 @@ export const journalEntryService = {
         ...input.lines.map((l) => l.accountId),
       ]);
       await assertCostCentersInCompany(tx, companyId, input.lines);
+      await assertVatAllowed(tx, companyId, input.lines);
       const lines = await buildStoredLines(tx, companyId, input.lines, vat);
       await tx.journalEntryLine.deleteMany({ where: { journalEntryId: entry.id } });
       return tx.journalEntry.update({

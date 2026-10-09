@@ -20,6 +20,11 @@ import { fromCents, toCents } from './money';
 // gross amount of a line is always its amount + vatAmount.
 export type VatBasis = 'net' | 'gross';
 
+// The Finnish VAT rates an account can be given as its default (see
+// Account.defaultVatRate). The UI offers the same ones on an entry line
+// (src/lib/vat.ts there) — change both together.
+export const VAT_RATES = [25.5, 13.5, 10, 0] as const;
+
 // The two accounts ChartOfAccounts names for VAT rows.
 export type VatAccountKind = 'receivable' | 'payable';
 

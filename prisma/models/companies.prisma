@@ -14,6 +14,7 @@ model Company {
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
   members            CompanyUser[]
+  settings           CompanySettings?
   chartOfAccounts    ChartOfAccounts?
   accountGroups      AccountGroup[]
   accounts           Account[]
@@ -24,6 +25,20 @@ model Company {
   accountingPeriods  AccountingPeriod[]
   voucherCounters    VoucherCounter[]
   costCenters        CostCenter[]
+}
+
+// Settings of the company's books. Keyed by the company alone, so they apply to
+// everyone working in it (personal preferences never go here). The row is
+// created lazily on the first save: no row means all defaults (see
+// src/services/company-settings.service.ts).
+model CompanySettings {
+  companyId     String   @id
+  // Whether the company is registered for VAT (arvonlisäverovelvollinen). When
+  // it is not, no journal entry line may carry a VAT rate.
+  vatRegistered Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
 }
 
 // Membership of a user in a company. Role and admin rights are per-company:

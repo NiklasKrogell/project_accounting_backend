@@ -254,6 +254,11 @@ model Account {
   company        Company            @relation(fields: [companyId], references: [id])
   accountGroupId String?
   accountGroup   AccountGroup?      @relation(fields: [accountGroupId], references: [id])
+  // ALV-prosentti, jonka kirjausrivi saa oletuksena, kun tili valitaan sille
+  // (ks. VAT_RATES, src/lib/vat.ts). Null = ei oletusta; 0 on oma arvonsa.
+  // Pelkkä käyttöliittymän esitäyttö: palvelin ei johda rivin prosenttia
+  // tästä, eikä oletusta käytetä, jos yritys ei ole arvonlisäverovelvollinen.
+  defaultVatRate Float?
   journalEntries JournalEntry[]
   lines          JournalEntryLine[]
 
@@ -284,6 +289,10 @@ model BankAccount {
     company   Company   @relation(fields: [companyId], references: [id])
     accountId String
     account   Account   @relation(fields: [accountId], references: [id])
+    // Käytöstä poistettu pankkitili säilyy (ja varaa IBANinsa), mutta sitä ei
+    // tarjota uusiin valintoihin. Pankkitilejä ei poisteta, ne poistetaan
+    // käytöstä ja voidaan ottaa takaisin käyttöön.
+    isActive  Boolean   @default(true)
 
     createdAt DateTime @default(now())
     updatedAt DateTime @updatedAt
