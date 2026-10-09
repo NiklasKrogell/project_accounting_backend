@@ -2,7 +2,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { createApp } from '../../src/app';
 import { prisma } from '../../src/lib/prisma';
-import { addMember, createAccount, createTestContext } from './helpers';
+import {
+  addMember,
+  createAccount,
+  createCashAndBankAccount,
+  createTestContext,
+} from './helpers';
 
 const app = createApp();
 
@@ -17,6 +22,8 @@ const IBAN = {
   no: 'NO9386011117947',
   se: 'SE4550000000058398257466',
   ee: 'EE382200221020145685',
+  lt: 'LT121000011101001000',
+  be: 'BE68539007547034',
 };
 
 let cookie: string;
@@ -27,7 +34,7 @@ beforeAll(async () => {
   const ctx = await createTestContext('ADMIN');
   cookie = ctx.cookie;
   companyId = ctx.company.id;
-  accountId = (await createAccount(companyId, 'Pankkitili')).id;
+  accountId = (await createCashAndBankAccount(companyId, 'Pankkitili')).id;
 });
 
 afterAll(async () => {
@@ -56,7 +63,7 @@ describe('bank accounts', () => {
     expect(got.status).toBe(200);
     expect(got.body.data.iban).toBe(IBAN.fi);
 
-    const other = await createAccount(companyId, 'Toinen pankkitili');
+    const other = await createCashAndBankAccount(companyId, 'Toinen pankkitili');
     const updated = await update(id, { name: 'Käyttötili', iban: IBAN.de, accountId: other.id });
     expect(updated.status).toBe(200);
     expect(updated.body.data).toMatchObject({
@@ -88,7 +95,7 @@ describe('bank accounts', () => {
 
   it('lists bank accounts in use first, then by name', async () => {
     const other = await createTestContext('ADMIN');
-    const account = await createAccount(other.company.id, 'Pankkitili');
+    const account = await createCashAndBankAccount(other.company.id, 'Pankkitili');
     const add = (name: string, iban: string) =>
       create({ name, iban, accountId: account.id }, other.cookie);
     const a = await add('A-tili', IBAN.fi);
@@ -119,7 +126,7 @@ describe('bank accounts', () => {
   it('allows the same IBAN in another company', async () => {
     await create({ name: 'Oma', iban: IBAN.no, accountId });
     const other = await createTestContext('ADMIN');
-    const account = await createAccount(other.company.id, 'Pankkitili');
+    const account = await createCashAndBankAccount(other.company.id, 'Pankkitili');
     const res = await create({ name: 'Vieras', iban: IBAN.no, accountId: account.id }, other.cookie);
     expect(res.status).toBe(201);
   });
@@ -138,9 +145,56 @@ describe('bank accounts', () => {
     expect(res.status).toBe(400);
   });
 
+  it('only accepts an account under the balance sheet item CASH_AND_BANK', async () => {
+    const ungrouped = await createAccount(companyId, 'Ryhmätön tili');
+    const chart = await prisma.chartOfAccounts.findUniqueOrThrow({ where: { companyId } });
+    const receivables = await prisma.accountGroup.create({
+      data: {
+        name: 'Myyntisaamiset',
+        mainClass: 'CURRENT_ASSETS',
+        balanceSheetItem: 'SHORT_TERM_TRADE_RECEIVABLES',
+        companyId,
+        chartOfAccountsId: chart.id,
+      },
+    });
+    const receivable = await createAccount(companyId, 'Myyntisaamiset', receivables.id);
+
+    for (const wrong of [ungrouped, receivable]) {
+      const res = await create({ name: 'Väärä tili', iban: IBAN.lt, accountId: wrong.id });
+      expect(res.status).toBe(400);
+      expect(res.body.error.message).toBe(
+        'Account must be under the balance sheet item "Cash in hand and at banks"',
+      );
+    }
+
+    const created = await create({ name: 'Oikea tili', iban: IBAN.lt, accountId });
+    expect(created.status).toBe(201);
+    const id = created.body.data.id as string;
+    const moved = await update(id, { name: 'Oikea tili', iban: IBAN.lt, accountId: receivable.id });
+    expect(moved.status).toBe(400);
+  });
+
+  it('lets a bank account linked to another kind of account be kept and changed', async () => {
+    // Linked before the rule, or the account was reclassified afterwards.
+    const legacyAccount = await createAccount(companyId, 'Vanha linkitys');
+    const legacy = await prisma.bankAccount.create({
+      data: { companyId, name: 'Vanha', iban: IBAN.be, accountId: legacyAccount.id },
+    });
+
+    const body = { name: 'Vanha tili', iban: IBAN.be, accountId: legacyAccount.id };
+    const renamed = await update(legacy.id, { ...body, isActive: false });
+    expect(renamed.status).toBe(200);
+    expect(renamed.body.data).toMatchObject({ name: 'Vanha tili', isActive: false });
+
+    const relinked = await update(legacy.id, { ...body, accountId });
+    expect(relinked.status).toBe(200);
+    // Once moved off it, the old account can't be picked again.
+    expect((await update(legacy.id, body)).status).toBe(400);
+  });
+
   it("404s on another company's bank account", async () => {
     const other = await createTestContext('ADMIN');
-    const account = await createAccount(other.company.id, 'Pankkitili');
+    const account = await createCashAndBankAccount(other.company.id, 'Pankkitili');
     const foreign = await create({ name: 'Vieras', iban: IBAN.ee, accountId: account.id }, other.cookie);
     const id = foreign.body.data.id as string;
 
@@ -165,7 +219,7 @@ describe('bank accounts', () => {
   });
 
   it('cannot be deleted, and keeps its accounting account from being deleted', async () => {
-    const account = await createAccount(companyId, 'Lukittu pankkitili');
+    const account = await createCashAndBankAccount(companyId, 'Lukittu pankkitili');
     const created = await create({ name: 'Pysyvä', iban: IBAN.ee, accountId: account.id });
     const id = created.body.data.id as string;
 

@@ -73,7 +73,7 @@ export async function createCostCenter(companyId: string, code: string, name = `
 }
 
 // Account numbers are unique per company; randomize to avoid collisions.
-export async function createAccount(companyId: string, name: string) {
+export async function createAccount(companyId: string, name: string, accountGroupId?: string) {
   const chart = await prisma.chartOfAccounts.findUniqueOrThrow({ where: { companyId } });
   return prisma.account.create({
     data: {
@@ -81,6 +81,26 @@ export async function createAccount(companyId: string, name: string) {
       name,
       companyId,
       chartOfAccountsId: chart.id,
+      ...(accountGroupId ? { accountGroupId } : {}),
     },
   });
+}
+
+// An account a bank account may be linked to: one in a group of the balance
+// sheet item CASH_AND_BANK ("Rahat ja pankkisaamiset"), created on first use.
+export async function createCashAndBankAccount(companyId: string, name: string) {
+  const chart = await prisma.chartOfAccounts.findUniqueOrThrow({ where: { companyId } });
+  const groupName = 'Rahat ja pankkisaamiset';
+  const group = await prisma.accountGroup.upsert({
+    where: { companyId_name: { companyId, name: groupName } },
+    update: {},
+    create: {
+      name: groupName,
+      mainClass: 'CURRENT_ASSETS',
+      balanceSheetItem: 'CASH_AND_BANK',
+      companyId,
+      chartOfAccountsId: chart.id,
+    },
+  });
+  return createAccount(companyId, name, group.id);
 }
