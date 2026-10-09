@@ -5,6 +5,7 @@ import { authRoutes } from './auth.routes';
 import { companyRoutes } from './company.routes';
 import { userSettingsRoutes } from './user-settings.routes';
 import { companySettingsRoutes } from './company-settings.routes';
+import { companyInfoRoutes } from './company-info.routes';
 import { fiscalYearRoutes } from './fiscal-year.routes';
 import { accountingPeriodRoutes } from './accounting-period.routes';
 import { journalEntryRoutes } from './journal-entry.routes';
@@ -45,6 +46,7 @@ gated.get('/ping', (req: Request, res: Response) => {
   });
 });
 
+gated.use('/settings/company/info', companyInfoRoutes);
 gated.use('/settings/company', companySettingsRoutes);
 gated.use('/fiscal-years', fiscalYearRoutes);
 gated.use('/accounting-periods', accountingPeriodRoutes);

@@ -4,7 +4,9 @@ import { prisma } from '../../src/lib/prisma';
 
 // Creates an isolated company + user + membership + session directly in the
 // test database. Returns the session cookie the HTTP tests authenticate with.
-export async function createTestContext(role: Role = 'ADMIN') {
+// `isAdmin` makes the user a company administrator, which is independent of
+// the accounting role.
+export async function createTestContext(role: Role = 'ADMIN', isAdmin = false) {
   const suffix = randomUUID().slice(0, 8);
   const company = await prisma.company.create({
     data: {
@@ -29,7 +31,7 @@ export async function createTestContext(role: Role = 'ADMIN') {
     },
   });
   await prisma.companyUser.create({
-    data: { userId: user.id, companyId: company.id, role },
+    data: { userId: user.id, companyId: company.id, role, isAdmin },
   });
   const token = randomBytes(24).toString('base64url');
   await prisma.session.create({
@@ -45,7 +47,7 @@ export async function createTestContext(role: Role = 'ADMIN') {
 
 // Adds an extra member with the given role to an existing company, with their
 // own session cookie.
-export async function addMember(companyId: string, role: Role) {
+export async function addMember(companyId: string, role: Role, isAdmin = false) {
   const suffix = randomUUID().slice(0, 8);
   const user = await prisma.user.create({
     data: {
@@ -55,7 +57,7 @@ export async function addMember(companyId: string, role: Role) {
       password_hash: 'not-a-real-hash',
     },
   });
-  await prisma.companyUser.create({ data: { userId: user.id, companyId, role } });
+  await prisma.companyUser.create({ data: { userId: user.id, companyId, role, isAdmin } });
   const token = randomBytes(24).toString('base64url');
   await prisma.session.create({
     data: {
