@@ -20,6 +20,7 @@ import { chartOfAccountsRoutes } from './chart-of-accounts.routes';
 import { generalLedgerRoutes } from './general-ledger.routes';
 import { incomeStatementRoutes } from './income-statement.routes';
 import { balanceSheetRoutes } from './balance-sheet.routes';
+import { storedFileRoutes } from './stored-file.routes';
 import { requireAuth } from '../middleware/requireAuth';
 import { requirePasswordChanged } from '../middleware/requirePasswordChanged';
 import { requireActiveSubscription } from '../middleware/requireActiveSubscription';
@@ -67,5 +68,6 @@ gated.use('/account-groups', accountGroupRoutes);
 gated.use('/accounts', accountRoutes);
 gated.use('/bank-accounts', bankAccountRoutes);
 gated.use('/cost-centers', costCenterRoutes);
+gated.use('/files', storedFileRoutes);
 
 routes.use('/api', gated);

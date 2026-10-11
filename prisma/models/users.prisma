@@ -26,7 +26,7 @@ model User {
   sessions       Session[]
   tokens         VerificationToken[]
   journalEntries JournalEntry[]
-  attachments    Attachment[]
+  uploadedFiles  StoredFile[]
 }
 
 // Personal preferences. Keyed by the user alone, so they follow the user into

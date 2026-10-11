@@ -316,7 +316,8 @@ model JournalEntry {
   companyId     String
   company       Company            @relation(fields: [companyId], references: [id])
 
-  attachments Attachment[]
+  // Tositteen liitteet (lasku, kuitti tms.), ks. prisma/models/storage.prisma.
+  files StoredFile[]
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -337,24 +338,6 @@ model VoucherCounter {
   nextNumber  Int         @default(1)
 
   @@id([companyId, voucherType])
-}
-
-// Tositteen liite (lasku, kuitti tms.). Itse tiedosto tallennetaan
-// objektivarastoon; tänne vain metadata ja viittaus (storageKey).
-model Attachment {
-  id             String       @id @default(uuid())
-  fileName       String // alkuperäinen tiedostonimi
-  mimeType       String // esim. "application/pdf", "image/jpeg"
-  fileSize       Int // tiedoston koko tavuina
-  storageKey     String       @unique // avain/polku objektivarastossa
-  journalEntryId String
-  journalEntry   JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
-  companyId      String
-  company        Company      @relation(fields: [companyId], references: [id])
-
-  createdAt   DateTime @default(now())
-  createdById String
-  createdBy   User     @relation(fields: [createdById], references: [id])
 }
 
 model JournalEntryLine {

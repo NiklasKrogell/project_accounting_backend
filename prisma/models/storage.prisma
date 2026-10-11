@@ -1,0 +1,37 @@
+// stored files
+
+// A file a company has stored (a receipt, an invoice, ...). The bytes are in
+// object storage; this row holds what is known about them and is the only way
+// to reach them. A file belongs to exactly one company and is only ever read
+// with that company's id in the query (see src/services/stored-file.service.ts).
+model StoredFile {
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+  // The object's key in the bucket: companies/{companyId}/{id}, built by the
+  // server (src/lib/storageKey.ts), never taken from or shown to a client. The
+  // migration adds a CHECK constraint ("StoredFile_key_in_company_prefix") that
+  // keeps the key under the prefix of the row's own company.
+  storageKey   String @unique
+  // The file's name on the uploader's computer, cleaned up (see
+  // sanitizeFileName in src/lib/fileType.ts).
+  originalName String
+  // Detected from the content when the file was uploaded, not what the client
+  // claimed it to be.
+  mimeType     String
+  size         Int // in bytes
+  sha256       String // hex digest of the content
+  uploadedById String
+  uploadedBy   User   @relation(fields: [uploadedById], references: [id])
+  // The voucher the file documents, if any. SetNull: deleting the entry leaves
+  // the file with the company, unlinked.
+  journalEntryId String?
+  journalEntry   JournalEntry? @relation(fields: [journalEntryId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  // companyId + createdAt serves the company's file list; journalEntryId the
+  // files of one entry and the SetNull when an entry is deleted.
+  @@index([companyId, createdAt])
+  @@index([journalEntryId])
+}

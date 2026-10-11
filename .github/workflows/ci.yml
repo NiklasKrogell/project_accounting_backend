@@ -25,11 +25,26 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
+      # Object storage for the integration tests: the same S3 emulator as the
+      # `storage` service of docker-compose.yml.
+      s3mock:
+        image: adobe/s3mock:5.2.3
+        ports:
+          - 9090:9090
+        options: >-
+          --health-cmd "wget --spider -q http://localhost:9090/favicon.ico"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/project_accounting?schema=public
       # Integration tests provision and use their own database on the same
       # Postgres service (see tests/integration/globalSetup.ts).
       TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/project_accounting_test
+      # The file tests create a bucket of their own in the s3mock service
+      # (see tests/integration/testStorage.ts).
+      TEST_S3_ENDPOINT: http://localhost:9090
       NODE_ENV: test
 
     steps:

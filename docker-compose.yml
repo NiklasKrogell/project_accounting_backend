@@ -11,5 +11,22 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
 
+  # Local stand-in for the object storage (Cloudflare R2 in production): an S3
+  # API on port 9090 that takes any credentials. Its files are kept on the
+  # volume; the version is pinned because the on-disk format may change between
+  # releases.
+  storage:
+    image: adobe/s3mock:5.2.3
+    restart: unless-stopped
+    environment:
+      COM_ADOBE_TESTING_S3MOCK_STORE_INITIAL_BUCKETS: project-accounting-dev
+      COM_ADOBE_TESTING_S3MOCK_STORE_ROOT: /s3mockroot
+      COM_ADOBE_TESTING_S3MOCK_STORE_RETAIN_FILES_ON_EXIT: "true"
+    ports:
+      - "9090:9090"
+    volumes:
+      - s3data:/s3mockroot
+
 volumes:
   pgdata:
+  s3data:

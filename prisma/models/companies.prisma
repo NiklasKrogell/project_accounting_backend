@@ -21,7 +21,7 @@ model Company {
   accounts           Account[]
   journalEntries     JournalEntry[]
   bankAccounts       BankAccount[]
-  attachments        Attachment[]
+  storedFiles        StoredFile[]
   fiscalYears        FiscalYear[]
   accountingPeriods  AccountingPeriod[]
   voucherCounters    VoucherCounter[]

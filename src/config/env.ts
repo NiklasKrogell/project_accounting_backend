@@ -9,6 +9,14 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(4000),
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   CORS_ORIGIN: z.string().default('http://localhost:3000'),
+  // Object storage, spoken to over the S3 API (src/lib/objectStorage.ts):
+  // Cloudflare R2 in production, the S3Mock container of docker-compose.yml in
+  // development. R2 takes 'auto' as its region.
+  S3_ENDPOINT: z.string().url('S3_ENDPOINT must be a URL'),
+  S3_REGION: z.string().min(1).default('auto'),
+  S3_BUCKET: z.string().min(1, 'S3_BUCKET is required'),
+  S3_ACCESS_KEY_ID: z.string().min(1, 'S3_ACCESS_KEY_ID is required'),
+  S3_SECRET_ACCESS_KEY: z.string().min(1, 'S3_SECRET_ACCESS_KEY is required'),
 });
 
 const parsed = envSchema.safeParse(process.env);

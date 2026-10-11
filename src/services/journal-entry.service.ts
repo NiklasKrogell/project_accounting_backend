@@ -315,7 +315,9 @@ export const journalEntryService = {
       const entry = await tx.journalEntry.findFirst({ where: { id: entryId, companyId } });
       if (!entry) throw AppError.notFound('Journal entry not found');
       await assertEntryEditable(companyId, entry.date, tx);
-      // Lines have no DB cascade; attachments cascade with the entry.
+      // Lines have no DB cascade. The entry's files are not deleted with it:
+      // the database unlinks them (StoredFile.journalEntryId, SetNull) and
+      // they stay with the company.
       await tx.journalEntryLine.deleteMany({ where: { journalEntryId: entry.id } });
       await tx.journalEntry.delete({ where: { id: entry.id } });
     });
