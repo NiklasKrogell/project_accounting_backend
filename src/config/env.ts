@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { z } from 'zod';
+import { parseTrustProxy } from '../lib/trustProxy';
 
 // Validate and coerce environment variables once at startup. Any missing or
 // malformed value fails fast with a readable message instead of surfacing as a
@@ -9,6 +10,18 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(4000),
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   CORS_ORIGIN: z.string().default('http://localhost:3000'),
+  // The reverse proxy in front of the server, if any (src/lib/trustProxy.ts).
+  TRUST_PROXY: z
+    .string()
+    .optional()
+    .transform((value, ctx) => {
+      try {
+        return parseTrustProxy(value);
+      } catch (err) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: (err as Error).message });
+        return z.NEVER;
+      }
+    }),
   // Object storage, spoken to over the S3 API (src/lib/objectStorage.ts):
   // Cloudflare R2 in production, the S3Mock container of docker-compose.yml in
   // development. R2 takes 'auto' as its region.

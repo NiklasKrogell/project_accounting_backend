@@ -39,6 +39,8 @@ CI (`.github/workflows/ci.yml`, runs on push to `main`/`niklas-dev` and PRs to `
 ### Request flow
 `src/index.ts` creates the HTTP server (graceful shutdown on SIGINT/SIGTERM, 10s force-exit) around the app built by `src/app.ts` — the app factory is kept separate from `.listen()` so it can be imported directly in integration tests. Middleware order: Helmet → CORS (credentials on, origin pinned to `env.CORS_ORIGIN`) → JSON body parsing (100kb limit) → cookie-parser → Morgan (non-test envs only) → routes → `notFound` → `errorHandler`.
 
+Before any middleware, `trust proxy` is set from `TRUST_PROXY` (`src/lib/trustProxy.ts`): unset means none, otherwise a number of proxy hops or a list of proxy addresses/subnets. It decides `req.ip`, which the rate limiters count by and Morgan logs. Production behind a reverse proxy must set it, or every client shares one rate-limit bucket; "trust everything" (`true`, `/0`) is refused at startup.
+
 Routes are aggregated in `src/routes/index.ts`: `/health`, `/api/auth`, `/api/companies`, `/api/settings/user` and `/api/invitations` are mounted outside the paywall (each does its own internal gating); every other `/api/*` route is gated behind `requireAuth` + `requirePasswordChanged` + `requireActiveSubscription`. Route → controller (Zod validation of body/params/query) → service (business logic, Prisma calls) → `AppError` thrown on failure, caught by the centralized `errorHandler` (translates `AppError`, `ZodError` → 400, Prisma `P2002` → 409, else 500 with detail only in dev).
 
 ### Auth & sessions

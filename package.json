@@ -54,6 +54,8 @@
     "vitest": "^4.1.10"
   },
   "overrides": {
-    "@hono/node-server": "^1.19.13"
+    "prisma": {
+      "mysql2": "^3.24.5"
+    }
   }
 }

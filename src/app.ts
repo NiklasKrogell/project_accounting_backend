@@ -13,6 +13,11 @@ import { errorHandler } from './middleware/errorHandler';
 export function createApp(): Express {
   const app = express();
 
+  // Whose X-Forwarded-For is believed, so that req.ip (rate limiting, request
+  // log) is the client and not the reverse proxy. Off unless TRUST_PROXY is
+  // set; Express throws here on an address it can't read.
+  app.set('trust proxy', env.TRUST_PROXY);
+
   app.use(helmet());
   // credentials: true lets the browser send the httpOnly session cookie; the
   // origin stays pinned to the UI, never '*'.
