@@ -15,6 +15,7 @@ import { journalEntryRoutes } from './journal-entry.routes';
 import { accountGroupRoutes } from './account-group.routes';
 import { accountRoutes } from './account.routes';
 import { bankAccountRoutes } from './bank-account.routes';
+import { bankStatementRoutes } from './bank-statement.routes';
 import { costCenterRoutes } from './cost-center.routes';
 import { chartOfAccountsRoutes } from './chart-of-accounts.routes';
 import { generalLedgerRoutes } from './general-ledger.routes';
@@ -67,6 +68,7 @@ gated.use('/chart-of-accounts', chartOfAccountsRoutes);
 gated.use('/account-groups', accountGroupRoutes);
 gated.use('/accounts', accountRoutes);
 gated.use('/bank-accounts', bankAccountRoutes);
+gated.use('/bank-statements', bankStatementRoutes);
 gated.use('/cost-centers', costCenterRoutes);
 gated.use('/files', storedFileRoutes);
 

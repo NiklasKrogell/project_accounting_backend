@@ -39,15 +39,18 @@ const createEntrySchema = z.object({
   accountId: z.string().uuid(),
   vatBasis: z.enum(['net', 'gross']).default('net'),
   automaticVat: z.boolean().default(true),
+  // The bank statement the entry is booked from; given only when creating.
+  bankStatementId: z.string().uuid().optional(),
   lines: z.array(lineSchema).min(2).max(100),
 });
 
-const updateEntrySchema = createEntrySchema.omit({ voucherType: true });
+const updateEntrySchema = createEntrySchema.omit({ voucherType: true, bankStatementId: true });
 
 const listQuerySchema = z.object({
   from: dateOnlySchema.optional(),
   to: dateOnlySchema.optional(),
   voucherType: voucherTypeSchema.optional(),
+  bankStatementId: z.string().uuid().optional(),
   take: z.coerce.number().int().min(1).max(500).default(100),
   skip: z.coerce.number().int().min(0).default(0),
 });
@@ -60,6 +63,7 @@ function serializeEntry(entry: JournalEntry & { lines: JournalEntryLine[] }) {
     date: formatDateOnly(entry.date),
     description: entry.description,
     accountId: entry.accountId,
+    bankStatementId: entry.bankStatementId,
     createdById: entry.createdById,
     createdAt: entry.createdAt,
     updatedAt: entry.updatedAt,

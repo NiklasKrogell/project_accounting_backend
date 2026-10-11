@@ -27,6 +27,9 @@ model StoredFile {
   // the file with the company, unlinked.
   journalEntryId String?
   journalEntry   JournalEntry? @relation(fields: [journalEntryId], references: [id], onDelete: SetNull)
+  // Set when the file is the PDF of a bank statement. Such a file belongs to
+  // the statement: it is not deleted or linked to a voucher through /api/files.
+  bankStatement  BankStatement?
 
   createdAt DateTime @default(now())
 

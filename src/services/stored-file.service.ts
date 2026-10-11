@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import type { Prisma } from '../generated/prisma/client';
+import type { Prisma, StoredFile } from '../generated/prisma/client';
 import { prisma } from '../lib/prisma';
 import { AppError } from '../lib/AppError';
 import { detectMimeType, sanitizeFileName } from '../lib/fileType';
@@ -23,7 +23,8 @@ export interface UploadFileInput {
 
 export interface ListFilesFilter {
   // The files of one journal entry, or (unlinked) those of none; all the
-  // company's files when both are left out.
+  // company's files when both are left out. A bank statement's PDF is not
+  // waiting for an entry, so it is not among the unlinked ones.
   journalEntryId?: string | undefined;
   unlinked?: boolean | undefined;
   take: number;
@@ -59,51 +60,76 @@ async function assertEntryFilesChangeable(
   await assertEntryEditable(companyId, entry.date, tx);
 }
 
-export const storedFileService = {
-  // The object is stored first and the row written second: if anything fails in
-  // between, what is left is an object nothing points at, never a file that is
-  // listed but can't be downloaded. The upload to storage stays outside the
-  // transaction, which would otherwise be held open for as long as it takes.
-  async upload(companyId: string, userId: string, input: UploadFileInput) {
-    if (input.content.length === 0) throw AppError.badRequest('File is empty');
-    const mimeType = detectMimeType(input.content);
-    if (!mimeType) {
-      throw new AppError(415, 'Unsupported file type: a file must be a PDF or a JPEG, PNG or WebP image');
-    }
+// The PDF of a bank statement belongs to the statement: it is not deleted from
+// under it, nor made the document of a voucher.
+async function assertNotBankStatementFile(
+  tx: Prisma.TransactionClient,
+  fileId: string,
+): Promise<void> {
+  const statement = await tx.bankStatement.findUnique({ where: { fileId }, select: { id: true } });
+  if (statement) throw AppError.conflict('File is the PDF of a bank statement');
+}
 
-    const id = randomUUID();
-    const storageKey = await objectStorage.put(companyId, id, input.content, mimeType);
-    try {
-      return await prisma.$transaction(async (tx) => {
-        if (input.journalEntryId) {
-          await assertEntryFilesChangeable(tx, companyId, input.journalEntryId);
-        }
-        return tx.storedFile.create({
-          data: {
-            id,
-            companyId,
-            storageKey,
-            originalName: sanitizeFileName(input.originalName),
-            mimeType,
-            size: input.content.length,
-            sha256: createHash('sha256').update(input.content).digest('hex'),
-            uploadedById: userId,
-            journalEntryId: input.journalEntryId ?? null,
-          },
-        });
+// Stores a file and records it, together with whatever rows `writeRows` adds
+// for it (a bank statement, for its PDF). The object is stored first and the
+// rows written second: if anything fails in between, what is left is an object
+// nothing points at, never a file that is listed but can't be downloaded. The
+// upload to storage stays outside the transaction, which would otherwise be
+// held open for as long as it takes.
+export async function storeFile<T>(
+  companyId: string,
+  userId: string,
+  input: UploadFileInput,
+  writeRows: (tx: Prisma.TransactionClient, file: StoredFile) => Promise<T>,
+): Promise<T> {
+  if (input.content.length === 0) throw AppError.badRequest('File is empty');
+  const mimeType = detectMimeType(input.content);
+  if (!mimeType) {
+    throw new AppError(415, 'Unsupported file type: a file must be a PDF or a JPEG, PNG or WebP image');
+  }
+
+  const id = randomUUID();
+  const storageKey = await objectStorage.put(companyId, id, input.content, mimeType);
+  try {
+    return await prisma.$transaction(async (tx) => {
+      if (input.journalEntryId) {
+        await assertEntryFilesChangeable(tx, companyId, input.journalEntryId);
+      }
+      const file = await tx.storedFile.create({
+        data: {
+          id,
+          companyId,
+          storageKey,
+          originalName: sanitizeFileName(input.originalName),
+          mimeType,
+          size: input.content.length,
+          sha256: createHash('sha256').update(input.content).digest('hex'),
+          uploadedById: userId,
+          journalEntryId: input.journalEntryId ?? null,
+        },
       });
-    } catch (err) {
-      await objectStorage.delete(companyId, storageKey).catch((cleanupErr: unknown) => {
-        console.error(`Could not remove the object of a failed upload (${storageKey}):`, cleanupErr);
-      });
-      throw err;
-    }
+      return writeRows(tx, file);
+    });
+  } catch (err) {
+    await objectStorage.delete(companyId, storageKey).catch((cleanupErr: unknown) => {
+      console.error(`Could not remove the object of a failed upload (${storageKey}):`, cleanupErr);
+    });
+    throw err;
+  }
+}
+
+export const storedFileService = {
+  async upload(companyId: string, userId: string, input: UploadFileInput) {
+    return storeFile(companyId, userId, input, async (_tx, file) => file);
   },
 
   async list(companyId: string, filter: ListFilesFilter) {
     const where: Prisma.StoredFileWhereInput = { companyId };
     if (filter.journalEntryId) where.journalEntryId = filter.journalEntryId;
-    else if (filter.unlinked) where.journalEntryId = null;
+    else if (filter.unlinked) {
+      where.journalEntryId = null;
+      where.bankStatement = null;
+    }
 
     const [files, total] = await prisma.$transaction([
       prisma.storedFile.findMany({
@@ -141,6 +167,7 @@ export const storedFileService = {
     return prisma.$transaction(async (tx) => {
       const file = await findCompanyFile(tx, companyId, id);
       if (file.journalEntryId === journalEntryId) return file;
+      await assertNotBankStatementFile(tx, file.id);
       if (file.journalEntryId) {
         await assertEntryFilesChangeable(tx, companyId, file.journalEntryId);
       }
@@ -158,6 +185,7 @@ export const storedFileService = {
   async remove(companyId: string, id: string): Promise<void> {
     await prisma.$transaction(async (tx) => {
       const file = await findCompanyFile(tx, companyId, id);
+      await assertNotBankStatementFile(tx, file.id);
       if (file.journalEntryId) {
         await assertEntryFilesChangeable(tx, companyId, file.journalEntryId);
       }

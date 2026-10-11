@@ -294,11 +294,41 @@ model BankAccount {
     // käytöstä ja voidaan ottaa takaisin käyttöön.
     isActive  Boolean   @default(true)
 
+    statements BankStatement[]
+
     createdAt DateTime @default(now())
     updatedAt DateTime @updatedAt
 
     @@unique([companyId, iban])
     @@index([companyId])
+}
+
+// Tiliote: yrityksen tuoma PDF, jonka tapahtumat kirjataan käsin. Tiedoston
+// sisältöä ei lueta, joten rivi tietää vain tiedoston, pankkitilin ja sen,
+// onko tiliote merkitty kirjatuksi (ks. src/services/bank-statement.service.ts).
+model BankStatement {
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+  // Tiliotteen PDF: yksi tiedosto on yksi tiliote. Restrict, koska tiedostoa
+  // ei saa poistaa tiliotteen alta (ks. storedFileService.remove).
+  fileId    String     @unique
+  file      StoredFile @relation(fields: [fileId], references: [id], onDelete: Restrict)
+  // Pankkitili, jonka tiliote tämä on; null kunnes käyttäjä valitsee sen.
+  // Restrict (Prisman oletus valinnaiselle relaatiolle olisi SetNull):
+  // pankkitilejä ei poisteta, eikä tiliote saa hiljaa menettää tiliään.
+  bankAccountId String?
+  bankAccount   BankAccount? @relation(fields: [bankAccountId], references: [id], onDelete: Restrict)
+  // Käyttäjän merkintä siitä, että tiliote on kirjattu. Pelkkä tila: se ei
+  // lukitse kirjauksia, vaan sen tekevät tilikaudet ja jaksot.
+  posted  Boolean        @default(false)
+  entries JournalEntry[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Palvelee yrityksen tiliotelistaa kirjaamattomat / kaikki -suodattimella.
+  @@index([companyId, posted, createdAt])
 }
 
 model JournalEntry {
@@ -319,6 +349,12 @@ model JournalEntry {
   // Tositteen liitteet (lasku, kuitti tms.), ks. prisma/models/storage.prisma.
   files StoredFile[]
 
+  // Tiliote, jolta kirjaus on tehty, jos sellainen on. Asetetaan kirjausta
+  // luodessa eikä muutu sen jälkeen. Restrict: tiliote, jolla on kirjauksia,
+  // ei katoa niiden alta.
+  bankStatementId String?
+  bankStatement   BankStatement? @relation(fields: [bankStatementId], references: [id], onDelete: Restrict)
+
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   createdById String
@@ -326,6 +362,8 @@ model JournalEntry {
 
   @@unique([companyId, voucherType, voucherNumber])
   @@index([companyId, date])
+  // Tiliotteen kirjausten haku ja summaus.
+  @@index([bankStatementId])
 }
 
 // Tositenumerosarjan laskuri per yritys ja tositelaji. Atominen upsert

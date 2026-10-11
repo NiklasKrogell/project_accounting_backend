@@ -31,6 +31,9 @@ export interface CreateJournalEntryInput {
   // caller books the VAT itself: the lines are stored as entered and must
   // balance as entered, and a line's vatRate and vatAmount only describe it.
   automaticVat?: boolean | undefined;
+  // The bank statement the entry is booked from, if any (see
+  // bank-statement.service.ts). Must be the company's own.
+  bankStatementId?: string | undefined;
   lines: JournalEntryLineInput[];
 }
 
@@ -52,12 +55,18 @@ function vatLinesOf(entered: JournalEntryLineInput[], vat: VatHandling) {
 
 // voucherType is deliberately not updatable: the voucher number belongs to the
 // type's numbering series, and moving an entry between series would corrupt it.
-export type UpdateJournalEntryInput = Omit<CreateJournalEntryInput, 'voucherType'>;
+// Nor is bankStatementId: an entry stays with the statement it was booked from.
+export type UpdateJournalEntryInput = Omit<
+  CreateJournalEntryInput,
+  'voucherType' | 'bankStatementId'
+>;
 
 export interface ListJournalEntriesFilter {
   from?: Date | undefined;
   to?: Date | undefined; // inclusive
   voucherType?: VoucherType | undefined;
+  // Only the entries booked from this bank statement.
+  bankStatementId?: string | undefined;
   take: number;
   skip: number;
 }
@@ -111,6 +120,18 @@ async function assertCostCentersInCompany(
   const found = await tx.costCenter.count({ where: { id: { in: unique }, companyId } });
   if (found !== unique.length) {
     throw AppError.badRequest('One or more cost centers do not exist in this company');
+  }
+}
+
+// Same rule for the bank statement an entry is booked from.
+async function assertBankStatementInCompany(
+  tx: Prisma.TransactionClient,
+  companyId: string,
+  bankStatementId: string,
+): Promise<void> {
+  const found = await tx.bankStatement.count({ where: { id: bankStatementId, companyId } });
+  if (found === 0) {
+    throw AppError.badRequest('Bank statement does not exist in this company');
   }
 }
 
@@ -223,6 +244,9 @@ export const journalEntryService = {
         ...input.lines.map((l) => l.accountId),
       ]);
       await assertCostCentersInCompany(tx, companyId, input.lines);
+      if (input.bankStatementId) {
+        await assertBankStatementInCompany(tx, companyId, input.bankStatementId);
+      }
       await assertVatAllowed(tx, companyId, input.lines);
       const lines = await buildStoredLines(tx, companyId, input.lines, vat);
       const voucherNumber = await allocateVoucherNumber(tx, companyId, input.voucherType);
@@ -235,6 +259,7 @@ export const journalEntryService = {
           date,
           description: input.description,
           accountId: input.accountId,
+          bankStatementId: input.bankStatementId ?? null,
           lines: { create: lines },
         },
         include: withLines,
@@ -252,6 +277,7 @@ export const journalEntryService = {
       };
     }
     if (filter.voucherType) where.voucherType = filter.voucherType;
+    if (filter.bankStatementId) where.bankStatementId = filter.bankStatementId;
 
     const [entries, total] = await prisma.$transaction([
       prisma.journalEntry.findMany({
