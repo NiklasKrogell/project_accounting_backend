@@ -421,6 +421,58 @@ describe('VAT accounts', () => {
   });
 });
 
+describe('trade payables account', () => {
+  const read = (as = cookie) =>
+    request(app).get('/api/chart-of-accounts/trade-payables-account').set('Cookie', as);
+  const write = (tradePayablesAccountId: string | null, as = cookie) =>
+    request(app)
+      .put('/api/chart-of-accounts/trade-payables-account')
+      .set('Cookie', as)
+      .send({ tradePayablesAccountId });
+
+  it('is unset for a company that has not picked one', async () => {
+    const res = await read();
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({ tradePayablesAccountId: null });
+  });
+
+  it('is set to 2700 when the default chart is seeded', async () => {
+    await request(app).post('/api/chart-of-accounts/initialize').set('Cookie', cookie);
+    const res = await read();
+    const account = await prisma.account.findUniqueOrThrow({
+      where: { id: res.body.data.tradePayablesAccountId },
+    });
+    expect(account.number).toBe('2700');
+  });
+
+  it("can be set and cleared, and refuses another company's account", async () => {
+    const payables = await createAccount(companyId, 'Ostovelat');
+    expect((await write(payables.id)).body.data).toEqual({ tradePayablesAccountId: payables.id });
+    expect((await read()).body.data).toEqual({ tradePayablesAccountId: payables.id });
+    expect((await write(null)).body.data).toEqual({ tradePayablesAccountId: null });
+
+    const other = await createTestContext('ADMIN');
+    const foreign = await createAccount(other.company.id, 'Vieras tili');
+    expect((await write(foreign.id)).status).toBe(400);
+  });
+
+  it('lets a VIEWER read but not change it', async () => {
+    const viewer = await addMember(companyId, 'VIEWER');
+    expect((await read(viewer.cookie)).status).toBe(200);
+    expect((await write(null, viewer.cookie)).status).toBe(403);
+  });
+
+  it('blocks deleting the account while it is set', async () => {
+    const payables = await createAccount(companyId, 'Ostovelat');
+    await write(payables.id);
+    const blocked = await request(app).delete(`/api/accounts/${payables.id}`).set('Cookie', cookie);
+    expect(blocked.status).toBe(409);
+    await write(null);
+    const freed = await request(app).delete(`/api/accounts/${payables.id}`).set('Cookie', cookie);
+    expect(freed.status).toBe(204);
+  });
+});
+
 describe('authorization and scoping', () => {
   it('forbids a VIEWER from creating chart entries', async () => {
     const viewer = await addMember(companyId, 'VIEWER');

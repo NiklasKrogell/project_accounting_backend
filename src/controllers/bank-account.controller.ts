@@ -2,11 +2,7 @@ import type { Request, Response } from 'express';
 import { z } from 'zod';
 import type { Account, BankAccount } from '../generated/prisma/client';
 import { bankAccountService } from '../services/bank-account.service';
-import { idParamsSchema } from '../lib/apiSchemas';
-import { isValidIban, normalizeIban } from '../lib/iban';
-
-// IBAN: strip spaces, uppercase, then check the shape and the checksum.
-const ibanSchema = z.string().transform(normalizeIban).refine(isValidIban, 'Invalid IBAN');
+import { ibanSchema, idParamsSchema } from '../lib/apiSchemas';
 
 // Create and update share the schema. `isActive` takes a bank account out of
 // use or back into it on update; a new bank account is always in use.

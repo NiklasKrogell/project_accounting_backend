@@ -23,8 +23,9 @@ export interface UploadFileInput {
 
 export interface ListFilesFilter {
   // The files of one journal entry, or (unlinked) those of none; all the
-  // company's files when both are left out. A bank statement's PDF is not
-  // waiting for an entry, so it is not among the unlinked ones.
+  // company's files when both are left out. A bank statement's PDF and a
+  // purchase invoice's files are not waiting for an entry, so they are not
+  // among the unlinked ones.
   journalEntryId?: string | undefined;
   unlinked?: boolean | undefined;
   take: number;
@@ -68,6 +69,29 @@ async function assertNotBankStatementFile(
 ): Promise<void> {
   const statement = await tx.bankStatement.findUnique({ where: { fileId }, select: { id: true } });
   if (statement) throw AppError.conflict('File is the PDF of a bank statement');
+}
+
+// A file of a purchase invoice is the invoice's: it becomes a document of the
+// invoice's voucher when the invoice is approved, and is never linked to one
+// by hand.
+function assertNotPurchaseInvoiceFile(file: StoredFile): void {
+  if (file.purchaseInvoiceId) throw AppError.conflict('File belongs to a purchase invoice');
+}
+
+// Nor is it deleted from under an approved invoice. The invoice's row is
+// locked, so that an approval going on at the same time either sees the file
+// gone or keeps it.
+async function assertPurchaseInvoiceFileRemovable(
+  tx: Prisma.TransactionClient,
+  file: StoredFile,
+): Promise<void> {
+  if (!file.purchaseInvoiceId) return;
+  const [invoice] = await tx.$queryRaw<{ status: string }[]>`
+    SELECT "status"::text AS "status" FROM "PurchaseInvoice"
+    WHERE "id" = ${file.purchaseInvoiceId} FOR UPDATE`;
+  if (invoice && (invoice.status === 'APPROVED' || invoice.status === 'PAID')) {
+    throw AppError.conflict('File belongs to an approved purchase invoice');
+  }
 }
 
 // Stores a file and records it, together with whatever rows `writeRows` adds
@@ -129,6 +153,7 @@ export const storedFileService = {
     else if (filter.unlinked) {
       where.journalEntryId = null;
       where.bankStatement = null;
+      where.purchaseInvoiceId = null;
     }
 
     const [files, total] = await prisma.$transaction([
@@ -168,6 +193,7 @@ export const storedFileService = {
       const file = await findCompanyFile(tx, companyId, id);
       if (file.journalEntryId === journalEntryId) return file;
       await assertNotBankStatementFile(tx, file.id);
+      assertNotPurchaseInvoiceFile(file);
       if (file.journalEntryId) {
         await assertEntryFilesChangeable(tx, companyId, file.journalEntryId);
       }
@@ -186,6 +212,7 @@ export const storedFileService = {
     await prisma.$transaction(async (tx) => {
       const file = await findCompanyFile(tx, companyId, id);
       await assertNotBankStatementFile(tx, file.id);
+      await assertPurchaseInvoiceFileRemovable(tx, file);
       if (file.journalEntryId) {
         await assertEntryFilesChangeable(tx, companyId, file.journalEntryId);
       }

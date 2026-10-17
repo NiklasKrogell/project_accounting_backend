@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isValidIban, normalizeIban } from '../../src/lib/iban';
+import { isValidBic, isValidIban, normalizeBic, normalizeIban } from '../../src/lib/iban';
 
 describe('normalizeIban', () => {
   it('strips whitespace and upper-cases', () => {
@@ -33,5 +33,25 @@ describe('isValidIban', () => {
     // Not normalized.
     expect(isValidIban('FI21 1234 5600 0007 85')).toBe(false);
     expect(isValidIban('fi2112345600000785')).toBe(false);
+  });
+});
+
+describe('normalizeBic', () => {
+  it('strips whitespace and upper-cases', () => {
+    expect(normalizeBic(' nda sfihh ')).toBe('NDASFIHH');
+  });
+});
+
+describe('isValidBic', () => {
+  it.each(['NDEAFIHH', 'OKOYFIHH', 'DEUTDEFF500', 'HELSFIHH'])('accepts %s', (bic) => {
+    expect(isValidBic(bic)).toBe(true);
+  });
+
+  it('rejects a wrong shape', () => {
+    expect(isValidBic('')).toBe(false);
+    expect(isValidBic('NDEAFI')).toBe(false);
+    expect(isValidBic('NDEAFIHH5')).toBe(false);
+    expect(isValidBic('1DEAFIHH')).toBe(false);
+    expect(isValidBic('ndeafihh')).toBe(false);
   });
 });

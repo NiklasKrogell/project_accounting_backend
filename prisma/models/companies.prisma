@@ -28,6 +28,9 @@ model Company {
   accountingPeriods  AccountingPeriod[]
   voucherCounters    VoucherCounter[]
   costCenters        CostCenter[]
+  suppliers            Supplier[]
+  purchaseInvoices     PurchaseInvoice[]
+  purchaseInvoiceLines PurchaseInvoiceLine[]
 }
 
 // Settings of the company's books. Keyed by the company alone, so they apply to

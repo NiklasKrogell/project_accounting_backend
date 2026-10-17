@@ -34,6 +34,11 @@ export interface SeedGroup {
 export const DEFAULT_VAT_RECEIVABLE_ACCOUNT_NUMBER = '1763';
 export const DEFAULT_VAT_PAYABLE_ACCOUNT_NUMBER = '2939';
 
+// The account of the chart below that approved purchase invoices credit their
+// gross total to (see lib/purchaseInvoice.ts). Seeding sets it as the
+// company's trade payables account.
+export const DEFAULT_TRADE_PAYABLES_ACCOUNT_NUMBER = '2700';
+
 export const DEFAULT_CHART_OF_ACCOUNTS: SeedGroup[] = [
   // --- Vastaavaa: A Pysyvät vastaavat ---
   // One group per item of the statutory layout (PMA 1753/2015, Annex V) here

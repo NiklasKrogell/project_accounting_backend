@@ -1,7 +1,23 @@
 import { z } from 'zod';
 import { parseDateOnly } from './dateOnly';
+import { isValidBic, isValidIban, normalizeBic, normalizeIban } from './iban';
 
 // Zod schemas shared across controllers.
+
+// An optional field of a body: left out, null and a blank string all mean
+// none, and come out as null.
+export function optionalSchema<T extends z.ZodTypeAny>(schema: T) {
+  return z.preprocess(
+    (value) => (value === undefined || (typeof value === 'string' && value.trim() === '') ? null : value),
+    schema.nullable(),
+  );
+}
+
+// IBAN: strip spaces, uppercase, then check the shape and the checksum.
+export const ibanSchema = z.string().transform(normalizeIban).refine(isValidIban, 'Invalid IBAN');
+
+// BIC: stored the same way; only its shape can be checked.
+export const bicSchema = z.string().transform(normalizeBic).refine(isValidBic, 'Invalid BIC');
 
 // Accounting dates travel through the API as 'YYYY-MM-DD' strings; see
 // src/lib/dateOnly.ts for the semantics.

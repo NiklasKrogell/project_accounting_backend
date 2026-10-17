@@ -51,6 +51,7 @@ export function serializeFile(file: StoredFile) {
     size: file.size,
     sha256: file.sha256,
     journalEntryId: file.journalEntryId,
+    purchaseInvoiceId: file.purchaseInvoiceId,
     uploadedById: file.uploadedById,
     createdAt: file.createdAt,
   };

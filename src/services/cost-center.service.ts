@@ -44,10 +44,10 @@ export const costCenterService = {
   async remove(companyId: string, id: string): Promise<void> {
     const costCenter = await prisma.costCenter.findFirst({
       where: { id, companyId },
-      include: { _count: { select: { lines: true } } },
+      include: { _count: { select: { lines: true, purchaseInvoiceLines: true } } },
     });
     if (!costCenter) throw AppError.notFound('Cost center not found');
-    if (costCenter._count.lines > 0) {
+    if (costCenter._count.lines + costCenter._count.purchaseInvoiceLines > 0) {
       throw AppError.conflict('Cost center is in use and cannot be deleted');
     }
     await prisma.costCenter.delete({ where: { id } });

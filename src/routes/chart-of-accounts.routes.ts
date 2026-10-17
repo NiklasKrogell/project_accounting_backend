@@ -4,8 +4,8 @@ import { roleAtLeast } from '../middleware/requireRole';
 import { asyncHandler } from '../lib/asyncHandler';
 
 // Mounted on the gated router (requireAuth + requireActiveSubscription).
-// One-shot seeding of the default Finnish chart for a fresh company, and the
-// chart's VAT accounts.
+// One-shot seeding of the default Finnish chart for a fresh company, the
+// chart's VAT accounts and its trade payables account.
 export const chartOfAccountsRoutes = Router();
 
 chartOfAccountsRoutes.post(
@@ -22,4 +22,14 @@ chartOfAccountsRoutes.put(
   '/vat-accounts',
   roleAtLeast('LEDGER'),
   asyncHandler(chartOfAccountsController.setVatAccounts),
+);
+chartOfAccountsRoutes.get(
+  '/trade-payables-account',
+  roleAtLeast('VIEWER'),
+  asyncHandler(chartOfAccountsController.getTradePayablesAccount),
+);
+chartOfAccountsRoutes.put(
+  '/trade-payables-account',
+  roleAtLeast('LEDGER'),
+  asyncHandler(chartOfAccountsController.setTradePayablesAccount),
 );

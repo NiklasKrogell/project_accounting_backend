@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma';
 import { AppError } from '../lib/AppError';
 import {
   DEFAULT_CHART_OF_ACCOUNTS,
+  DEFAULT_TRADE_PAYABLES_ACCOUNT_NUMBER,
   DEFAULT_VAT_PAYABLE_ACCOUNT_NUMBER,
   DEFAULT_VAT_RECEIVABLE_ACCOUNT_NUMBER,
 } from '../lib/defaultChartOfAccounts';
@@ -14,6 +15,14 @@ export interface VatAccounts {
 }
 
 const vatAccountColumns = { vatReceivableAccountId: true, vatPayableAccountId: true } as const;
+
+// The account approved purchase invoices credit their gross total to (see
+// lib/purchaseInvoice.ts); null until set.
+export interface TradePayablesAccount {
+  tradePayablesAccountId: string | null;
+}
+
+const tradePayablesColumns = { tradePayablesAccountId: true } as const;
 
 // Every company has exactly one ChartOfAccounts row (created alongside the
 // company); AccountGroup/Account rows reference it via chartOfAccountsId.
@@ -64,18 +73,25 @@ export const chartOfAccountsService = {
         });
       }
 
-      const vatAccounts = await tx.account.findMany({
+      const postingAccounts = await tx.account.findMany({
         where: {
           companyId,
-          number: { in: [DEFAULT_VAT_RECEIVABLE_ACCOUNT_NUMBER, DEFAULT_VAT_PAYABLE_ACCOUNT_NUMBER] },
+          number: {
+            in: [
+              DEFAULT_VAT_RECEIVABLE_ACCOUNT_NUMBER,
+              DEFAULT_VAT_PAYABLE_ACCOUNT_NUMBER,
+              DEFAULT_TRADE_PAYABLES_ACCOUNT_NUMBER,
+            ],
+          },
         },
       });
-      const idOf = (number: string) => vatAccounts.find((a) => a.number === number)?.id ?? null;
+      const idOf = (number: string) => postingAccounts.find((a) => a.number === number)?.id ?? null;
       await tx.chartOfAccounts.update({
         where: { id: chartOfAccountsId },
         data: {
           vatReceivableAccountId: idOf(DEFAULT_VAT_RECEIVABLE_ACCOUNT_NUMBER),
           vatPayableAccountId: idOf(DEFAULT_VAT_PAYABLE_ACCOUNT_NUMBER),
+          tradePayablesAccountId: idOf(DEFAULT_TRADE_PAYABLES_ACCOUNT_NUMBER),
         },
       });
 
@@ -116,6 +132,37 @@ export const chartOfAccountsService = {
         where: { id: chartOfAccountsId },
         data: input,
         select: vatAccountColumns,
+      });
+    });
+  },
+
+  async getTradePayablesAccount(companyId: string): Promise<TradePayablesAccount> {
+    const chart = await prisma.chartOfAccounts.findUnique({
+      where: { companyId },
+      select: tradePayablesColumns,
+    });
+    if (!chart) throw AppError.notFound('Chart of accounts not found for this company');
+    return chart;
+  },
+
+  // Null clears it, after which purchase invoices can't be approved until one
+  // is set again.
+  async setTradePayablesAccount(
+    companyId: string,
+    input: TradePayablesAccount,
+  ): Promise<TradePayablesAccount> {
+    return prisma.$transaction(async (tx) => {
+      if (input.tradePayablesAccountId) {
+        const found = await tx.account.count({
+          where: { id: input.tradePayablesAccountId, companyId },
+        });
+        if (found === 0) throw AppError.badRequest('Account does not exist in this company');
+      }
+      const chartOfAccountsId = await getChartOfAccountsId(companyId, tx);
+      return tx.chartOfAccounts.update({
+        where: { id: chartOfAccountsId },
+        data: input,
+        select: tradePayablesColumns,
       });
     });
   },

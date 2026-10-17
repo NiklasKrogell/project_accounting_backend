@@ -30,6 +30,12 @@ model StoredFile {
   // Set when the file is the PDF of a bank statement. Such a file belongs to
   // the statement: it is not deleted or linked to a voucher through /api/files.
   bankStatement  BankStatement?
+  // The purchase invoice the file is a document of, if any. Such a file is
+  // managed through the invoice: /api/files does not link it to a voucher, and
+  // deletes it only while the invoice is NEW or REJECTED. SetNull: deleting the
+  // invoice leaves the file with the company, unlinked.
+  purchaseInvoiceId String?
+  purchaseInvoice   PurchaseInvoice? @relation(fields: [purchaseInvoiceId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
 
@@ -37,4 +43,5 @@ model StoredFile {
   // files of one entry and the SetNull when an entry is deleted.
   @@index([companyId, createdAt])
   @@index([journalEntryId])
+  @@index([purchaseInvoiceId])
 }

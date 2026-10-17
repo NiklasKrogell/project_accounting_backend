@@ -130,3 +130,8 @@ export async function createCashAndBankAccount(companyId: string, name: string) 
   });
   return createAccount(companyId, name, group.id);
 }
+
+// A supplier with only a name, as the purchase invoice tests need one.
+export async function createSupplier(companyId: string, name = 'Toimittaja Oy') {
+  return prisma.supplier.create({ data: { companyId, name } });
+}

@@ -9,6 +9,11 @@ const vatAccountsSchema = z.object({
   vatPayableAccountId: z.string().uuid().nullable(),
 });
 
+// Required for the same reason: null clears.
+const tradePayablesAccountSchema = z.object({
+  tradePayablesAccountId: z.string().uuid().nullable(),
+});
+
 export const chartOfAccountsController = {
   async initialize(req: Request, res: Response) {
     const companyId = req.auth!.membership!.companyId;
@@ -25,5 +30,16 @@ export const chartOfAccountsController = {
     const companyId = req.auth!.membership!.companyId;
     const input = vatAccountsSchema.parse(req.body);
     res.json({ data: await chartOfAccountsService.setVatAccounts(companyId, input) });
+  },
+
+  async getTradePayablesAccount(req: Request, res: Response) {
+    const companyId = req.auth!.membership!.companyId;
+    res.json({ data: await chartOfAccountsService.getTradePayablesAccount(companyId) });
+  },
+
+  async setTradePayablesAccount(req: Request, res: Response) {
+    const companyId = req.auth!.membership!.companyId;
+    const input = tradePayablesAccountSchema.parse(req.body);
+    res.json({ data: await chartOfAccountsService.setTradePayablesAccount(companyId, input) });
   },
 };

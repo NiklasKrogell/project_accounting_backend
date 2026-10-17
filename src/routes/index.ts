@@ -17,6 +17,8 @@ import { accountRoutes } from './account.routes';
 import { bankAccountRoutes } from './bank-account.routes';
 import { bankStatementRoutes } from './bank-statement.routes';
 import { costCenterRoutes } from './cost-center.routes';
+import { supplierRoutes } from './supplier.routes';
+import { purchaseInvoiceRoutes } from './purchase-invoice.routes';
 import { chartOfAccountsRoutes } from './chart-of-accounts.routes';
 import { generalLedgerRoutes } from './general-ledger.routes';
 import { incomeStatementRoutes } from './income-statement.routes';
@@ -70,6 +72,8 @@ gated.use('/accounts', accountRoutes);
 gated.use('/bank-accounts', bankAccountRoutes);
 gated.use('/bank-statements', bankStatementRoutes);
 gated.use('/cost-centers', costCenterRoutes);
+gated.use('/suppliers', supplierRoutes);
+gated.use('/purchase-invoices', purchaseInvoiceRoutes);
 gated.use('/files', storedFileRoutes);
 
 routes.use('/api', gated);

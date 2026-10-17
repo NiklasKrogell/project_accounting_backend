@@ -80,9 +80,11 @@ export const accountService = {
     });
   },
 
-  // An account that has ever been used (booked directly, referenced by a line,
-  // or backing a bank account) must not be deleted, or history would dangle.
-  // Nor may one the chart names as a VAT account, used yet or not.
+  // An account that has ever been used (booked directly, referenced by a line
+  // or a purchase invoice row, or backing a bank account) must not be deleted,
+  // or history would dangle. Nor may one the chart names as a VAT or trade
+  // payables account, used yet or not. A supplier's default account is only a
+  // prefill and is cleared with it (SetNull).
   async remove(companyId: string, id: string): Promise<void> {
     const account = await prisma.account.findFirst({
       where: { id, companyId },
@@ -94,20 +96,36 @@ export const accountService = {
             bankAccounts: true,
             vatReceivableFor: true,
             vatPayableFor: true,
+            tradePayablesFor: true,
+            purchaseInvoiceLines: true,
           },
         },
       },
     });
     if (!account) throw AppError.notFound('Account not found');
-    const { journalEntries, lines, bankAccounts, vatReceivableFor, vatPayableFor } = account._count;
+    const {
+      journalEntries,
+      lines,
+      bankAccounts,
+      vatReceivableFor,
+      vatPayableFor,
+      tradePayablesFor,
+      purchaseInvoiceLines,
+    } = account._count;
     if (journalEntries + lines > 0) {
       throw AppError.conflict('Account is used by journal entries and cannot be deleted');
+    }
+    if (purchaseInvoiceLines > 0) {
+      throw AppError.conflict('Account is used by purchase invoices and cannot be deleted');
     }
     if (bankAccounts > 0) {
       throw AppError.conflict('Account is linked to a bank account and cannot be deleted');
     }
     if (vatReceivableFor + vatPayableFor > 0) {
       throw AppError.conflict('Account is set as a VAT account and cannot be deleted');
+    }
+    if (tradePayablesFor > 0) {
+      throw AppError.conflict('Account is set as the trade payables account and cannot be deleted');
     }
     await prisma.account.delete({ where: { id } });
   },

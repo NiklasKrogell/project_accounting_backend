@@ -99,8 +99,9 @@ function validateLinesBalance(entered: JournalEntryLineInput[], vat: VatHandling
 }
 
 // Every referenced account must belong to the caller's company; an id from
-// another company is indistinguishable from a nonexistent one.
-async function assertAccountsInCompany(
+// another company is indistinguishable from a nonexistent one. The purchase
+// invoice service checks its rows with this too.
+export async function assertAccountsInCompany(
   tx: Prisma.TransactionClient,
   companyId: string,
   accountIds: string[],
@@ -113,10 +114,10 @@ async function assertAccountsInCompany(
 }
 
 // Same rule for the optional cost centers on the lines.
-async function assertCostCentersInCompany(
+export async function assertCostCentersInCompany(
   tx: Prisma.TransactionClient,
   companyId: string,
-  lines: JournalEntryLineInput[],
+  lines: readonly { costCenterId?: string | null | undefined }[],
 ): Promise<void> {
   const unique = [
     ...new Set(lines.map((l) => l.costCenterId).filter((id): id is string => id != null)),
@@ -162,11 +163,11 @@ async function assertLineBookable(
 
 // A company that is not VAT-registered books no VAT at all, so none of its
 // lines may carry a VAT rate — with automatic VAT off as well, where the rate
-// would only describe the line.
-async function assertVatAllowed(
+// would only describe the line. Nor may the rows of its purchase invoices.
+export async function assertVatAllowed(
   tx: Prisma.TransactionClient,
   companyId: string,
-  lines: JournalEntryLineInput[],
+  lines: readonly { vatRate: number }[],
 ): Promise<void> {
   if (lines.every((l) => l.vatRate === 0)) return;
   const { vatRegistered } = await companySettingsService.get(companyId, tx);
@@ -256,58 +257,111 @@ async function allocateVoucherNumber(
   return counter.nextNumber - 1;
 }
 
+async function findEntry(tx: Prisma.TransactionClient, companyId: string, entryId: string) {
+  const entry = await tx.journalEntry.findFirst({
+    where: { id: entryId, companyId },
+    include: { purchaseInvoice: { select: { id: true } } },
+  });
+  if (!entry) throw AppError.notFound('Journal entry not found');
+  return entry;
+}
+
+// The entry of an approved purchase invoice is the invoice's: changing it here
+// would set the books and the invoice apart, so it changes only through the
+// invoice (see purchase-invoice.service.ts).
+function assertNotPurchaseInvoiceEntry(entry: { purchaseInvoice: { id: string } | null }): void {
+  if (entry.purchaseInvoice) {
+    throw AppError.conflict('The entry is booked from a purchase invoice; change the invoice instead');
+  }
+}
+
+// Creates an entry in the caller's transaction, so that whatever books it (an
+// approved purchase invoice) is written in the same one. The fiscal guard runs
+// in that transaction too, as its contract requires.
+export async function createJournalEntryInTx(
+  tx: Prisma.TransactionClient,
+  companyId: string,
+  userId: string,
+  input: CreateJournalEntryInput,
+) {
+  const vat = vatHandlingOf(input);
+  validateLinesBalance(input.lines, vat);
+  const date = normalizeToUtcDate(input.date);
+
+  await assertDateBookable(companyId, date, tx);
+  await assertAccountsInCompany(tx, companyId, [
+    input.accountId,
+    ...input.lines.map((l) => l.accountId),
+  ]);
+  await assertCostCentersInCompany(tx, companyId, input.lines);
+  let bankStatementId = input.bankStatementId;
+  if (input.bankStatementLineId) {
+    bankStatementId = await assertLineBookable(
+      tx,
+      companyId,
+      input.bankStatementLineId,
+      bankStatementId,
+    );
+  } else if (bankStatementId) {
+    await assertBankStatementInCompany(tx, companyId, bankStatementId);
+  }
+  await assertVatAllowed(tx, companyId, input.lines);
+  const lines = await buildStoredLines(tx, companyId, input.lines, vat);
+  const voucherNumber = await allocateVoucherNumber(tx, companyId, input.voucherType);
+  const entry = await tx.journalEntry.create({
+    data: {
+      companyId,
+      createdById: userId,
+      voucherType: input.voucherType,
+      voucherNumber,
+      date,
+      description: input.description,
+      accountId: input.accountId,
+      bankStatementId: bankStatementId ?? null,
+      lines: { create: lines },
+    },
+    include: withLines,
+  });
+  if (input.bankStatementLineId) {
+    // Only while still unbooked: of two bookings of the same transaction
+    // at once, the second finds it taken and is rolled back.
+    const linked = await tx.bankStatementLine.updateMany({
+      where: { id: input.bankStatementLineId, journalEntryId: null },
+      data: { journalEntryId: entry.id },
+    });
+    if (linked.count !== 1) throw AppError.conflict('The transaction is already booked');
+  }
+  return entry;
+}
+
+// Deletes an entry in the caller's transaction, while its date may still be
+// changed. The purchase invoice service uses this to take back the entry of an
+// invoice it reopens, having first cleared the invoice's link to it.
+export async function removeJournalEntryInTx(
+  tx: Prisma.TransactionClient,
+  companyId: string,
+  entryId: string,
+): Promise<void> {
+  const entry = await findEntry(tx, companyId, entryId);
+  await deleteEntry(tx, companyId, entry);
+}
+
+async function deleteEntry(
+  tx: Prisma.TransactionClient,
+  companyId: string,
+  entry: { id: string; date: Date },
+): Promise<void> {
+  await assertEntryEditable(companyId, entry.date, tx);
+  // Lines have no DB cascade. The entry's files are not deleted with it:
+  // the database unlinks them (StoredFile.journalEntryId, SetNull) and
+  // they stay with the company.
+  await tx.journalEntryLine.deleteMany({ where: { journalEntryId: entry.id } });
+  await tx.journalEntry.delete({ where: { id: entry.id } });
+}
+
 export const journalEntryService = {
   async create(companyId: string, userId: string, input: CreateJournalEntryInput) {
-    const vat = vatHandlingOf(input);
-    validateLinesBalance(input.lines, vat);
-    const date = normalizeToUtcDate(input.date);
-
-    return prisma.$transaction(async (tx) => {
-      await assertDateBookable(companyId, date, tx);
-      await assertAccountsInCompany(tx, companyId, [
-        input.accountId,
-        ...input.lines.map((l) => l.accountId),
-      ]);
-      await assertCostCentersInCompany(tx, companyId, input.lines);
-      let bankStatementId = input.bankStatementId;
-      if (input.bankStatementLineId) {
-        bankStatementId = await assertLineBookable(
-          tx,
-          companyId,
-          input.bankStatementLineId,
-          bankStatementId,
-        );
-      } else if (bankStatementId) {
-        await assertBankStatementInCompany(tx, companyId, bankStatementId);
-      }
-      await assertVatAllowed(tx, companyId, input.lines);
-      const lines = await buildStoredLines(tx, companyId, input.lines, vat);
-      const voucherNumber = await allocateVoucherNumber(tx, companyId, input.voucherType);
-      const entry = await tx.journalEntry.create({
-        data: {
-          companyId,
-          createdById: userId,
-          voucherType: input.voucherType,
-          voucherNumber,
-          date,
-          description: input.description,
-          accountId: input.accountId,
-          bankStatementId: bankStatementId ?? null,
-          lines: { create: lines },
-        },
-        include: withLines,
-      });
-      if (input.bankStatementLineId) {
-        // Only while still unbooked: of two bookings of the same transaction
-        // at once, the second finds it taken and is rolled back.
-        const linked = await tx.bankStatementLine.updateMany({
-          where: { id: input.bankStatementLineId, journalEntryId: null },
-          data: { journalEntryId: entry.id },
-        });
-        if (linked.count !== 1) throw AppError.conflict('The transaction is already booked');
-      }
-      return entry;
-    });
+    return prisma.$transaction((tx) => createJournalEntryInTx(tx, companyId, userId, input));
   },
 
   async list(companyId: string, filter: ListJournalEntriesFilter) {
@@ -352,8 +406,8 @@ export const journalEntryService = {
     const newDate = normalizeToUtcDate(input.date);
 
     return prisma.$transaction(async (tx) => {
-      const entry = await tx.journalEntry.findFirst({ where: { id: entryId, companyId } });
-      if (!entry) throw AppError.notFound('Journal entry not found');
+      const entry = await findEntry(tx, companyId, entryId);
+      assertNotPurchaseInvoiceEntry(entry);
       await assertEntryEditable(companyId, entry.date, tx);
       if (newDate.getTime() !== normalizeToUtcDate(entry.date).getTime()) {
         await assertDateBookable(companyId, newDate, tx);
@@ -381,14 +435,9 @@ export const journalEntryService = {
 
   async remove(companyId: string, entryId: string): Promise<void> {
     await prisma.$transaction(async (tx) => {
-      const entry = await tx.journalEntry.findFirst({ where: { id: entryId, companyId } });
-      if (!entry) throw AppError.notFound('Journal entry not found');
-      await assertEntryEditable(companyId, entry.date, tx);
-      // Lines have no DB cascade. The entry's files are not deleted with it:
-      // the database unlinks them (StoredFile.journalEntryId, SetNull) and
-      // they stay with the company.
-      await tx.journalEntryLine.deleteMany({ where: { journalEntryId: entry.id } });
-      await tx.journalEntry.delete({ where: { id: entry.id } });
+      const entry = await findEntry(tx, companyId, entryId);
+      assertNotPurchaseInvoiceEntry(entry);
+      await deleteEntry(tx, companyId, entry);
     });
   },
 };

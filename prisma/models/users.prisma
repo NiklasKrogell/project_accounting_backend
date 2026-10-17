@@ -27,6 +27,11 @@ model User {
   tokens         VerificationToken[]
   journalEntries JournalEntry[]
   uploadedFiles  StoredFile[]
+  // The purchase invoices this user entered, approved, rejected or marked paid.
+  purchaseInvoicesCreated  PurchaseInvoice[] @relation("PurchaseInvoicesCreated")
+  purchaseInvoicesApproved PurchaseInvoice[] @relation("PurchaseInvoicesApproved")
+  purchaseInvoicesRejected PurchaseInvoice[] @relation("PurchaseInvoicesRejected")
+  purchaseInvoicesPaid     PurchaseInvoice[] @relation("PurchaseInvoicesPaid")
 }
 
 // Personal preferences. Keyed by the user alone, so they follow the user into

@@ -111,6 +111,7 @@ describe('POST /api/files', () => {
       'journalEntryId',
       'mimeType',
       'originalName',
+      'purchaseInvoiceId',
       'sha256',
       'size',
       'uploadedById',

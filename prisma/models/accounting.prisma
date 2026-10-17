@@ -211,6 +211,11 @@ model ChartOfAccounts {
   vatReceivableAccount   Account? @relation("VatReceivableAccount", fields: [vatReceivableAccountId], references: [id], onDelete: Restrict)
   vatPayableAccountId    String?
   vatPayableAccount      Account? @relation("VatPayableAccount", fields: [vatPayableAccountId], references: [id], onDelete: Restrict)
+  // Ostovelkatili, jolle hyväksytyn ostolaskun kokonaissumma kirjataan
+  // (ks. src/lib/purchaseInvoice.ts). Null kunnes asetettu; oletustilikartta
+  // asettaa sen tilille 2700. Restrict kuten ALV-tileillä.
+  tradePayablesAccountId String?
+  tradePayablesAccount   Account? @relation("TradePayablesAccount", fields: [tradePayablesAccountId], references: [id], onDelete: Restrict)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -271,6 +276,11 @@ model Account {
   // Ks. ChartOfAccounts.vatReceivableAccountId / vatPayableAccountId.
   vatReceivableFor ChartOfAccounts[] @relation("VatReceivableAccount")
   vatPayableFor    ChartOfAccounts[] @relation("VatPayableAccount")
+  tradePayablesFor ChartOfAccounts[] @relation("TradePayablesAccount")
+
+  // Ostolaskujen rivit ja toimittajat, joiden oletustili tämä on.
+  purchaseInvoiceLines PurchaseInvoiceLine[]
+  supplierDefaults     Supplier[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -400,6 +410,9 @@ model JournalEntry {
   bankStatement   BankStatement? @relation(fields: [bankStatementId], references: [id], onDelete: Restrict)
   // Tiliotteen tapahtuma, josta kirjaus on tehty, jos sellainen on.
   bankStatementLine BankStatementLine?
+  // Ostolasku, jonka ostokirjaus tämä on, jos sellainen on. Sellaista
+  // kirjausta muutetaan vain laskun kautta.
+  purchaseInvoice   PurchaseInvoice?
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -465,6 +478,7 @@ model CostCenter {
   companyId String
   company   Company            @relation(fields: [companyId], references: [id])
   lines     JournalEntryLine[]
+  purchaseInvoiceLines PurchaseInvoiceLine[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
