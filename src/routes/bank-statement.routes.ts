@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { bankStatementController } from '../controllers/bank-statement.controller';
+import { bankStatementLineController } from '../controllers/bank-statement-line.controller';
 import { roleAtLeast } from '../middleware/requireRole';
 import { uploadSingleFile } from '../middleware/uploadSingleFile';
 import { asyncHandler } from '../lib/asyncHandler';
@@ -28,4 +29,29 @@ bankStatementRoutes.patch(
   '/:id',
   roleAtLeast('LEDGER'),
   asyncHandler(bankStatementController.update),
+);
+
+// The statement's transactions, imported from the bank's CSV export. Previewing
+// an import is part of importing, so it takes the same role.
+bankStatementRoutes.post(
+  '/:id/csv-preview',
+  roleAtLeast('LEDGER'),
+  uploadSingleFile,
+  asyncHandler(bankStatementLineController.preview),
+);
+bankStatementRoutes.get(
+  '/:id/lines',
+  roleAtLeast('VIEWER'),
+  asyncHandler(bankStatementLineController.list),
+);
+bankStatementRoutes.post(
+  '/:id/lines',
+  roleAtLeast('LEDGER'),
+  uploadSingleFile,
+  asyncHandler(bankStatementLineController.import),
+);
+bankStatementRoutes.delete(
+  '/:id/lines/:lineId',
+  roleAtLeast('LEDGER'),
+  asyncHandler(bankStatementLineController.remove),
 );

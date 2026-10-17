@@ -39,3 +39,14 @@ export async function acquireMembersLock(
 ): Promise<void> {
   await tx.$queryRaw`SELECT pg_advisory_xact_lock(${MEMBERS_LOCK_NS}::int, hashtext(${companyId}))::text`;
 }
+
+// A third one serializes imports of bank statement transactions, so that two
+// imports of the same file at once can't both find its rows new.
+const STATEMENT_LINES_LOCK_NS = 0x4253544c; // 'BSTL'
+
+export async function acquireStatementLinesLock(
+  tx: Prisma.TransactionClient,
+  companyId: string,
+): Promise<void> {
+  await tx.$queryRaw`SELECT pg_advisory_xact_lock(${STATEMENT_LINES_LOCK_NS}::int, hashtext(${companyId}))::text`;
+}

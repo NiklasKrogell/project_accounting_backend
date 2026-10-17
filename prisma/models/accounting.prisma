@@ -323,12 +323,56 @@ model BankStatement {
   // lukitse kirjauksia, vaan sen tekevät tilikaudet ja jaksot.
   posted  Boolean        @default(false)
   entries JournalEntry[]
+  // Tiliotteen tapahtumat, tuotu pankin CSV-tiedostosta.
+  lines   BankStatementLine[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   // Palvelee yrityksen tiliotelistaa kirjaamattomat / kaikki -suodattimella.
   @@index([companyId, posted, createdAt])
+}
+
+// Tiliotteen tapahtuma: yksi rivi pankin CSV-tiedostosta (ks.
+// src/lib/bankCsv.ts ja src/services/bank-statement-line.service.ts). Rivi
+// kirjataan yhdeksi kirjaukseksi; kirjaus osoittaa rivin kirjatuksi.
+model BankStatementLine {
+  id              String        @id @default(uuid())
+  companyId       String
+  company         Company       @relation(fields: [companyId], references: [id])
+  // Cascade: rivit ovat tiliotteen tietoa eivätkä jää ilman sitä. (Tiliotteita
+  // ei toistaiseksi poisteta lainkaan.)
+  bankStatementId String
+  bankStatement   BankStatement @relation(fields: [bankStatementId], references: [id], onDelete: Cascade)
+  // Järjestys tiliotteella, vanhimmasta uusimpaan.
+  position        Int
+  // Kirjauspäivä ja arvopäivä (jos tiedostossa on), pelkkinä päivinä.
+  bookingDate     DateTime      @db.Date
+  valueDate       DateTime?     @db.Date
+  // Etumerkillinen: + tilille tullut, - tililtä lähtenyt raha.
+  amount              Float
+  counterparty        String  @default("")
+  counterpartyAccount String  @default("")
+  reference           String  @default("")
+  message             String  @default("")
+  // Pankin tapahtumalaji tekstinä, esim. TILISIIRTO tai KORTTIOSTO.
+  transactionType     String  @default("")
+  // Pankin arkistointitunnus, jos tiedostossa on.
+  archiveId           String?
+  // Tunniste, jolla sama tapahtuma tunnistetaan uudesta tuonnista (ks.
+  // dedupeKeys, src/lib/bankCsv.ts).
+  dedupeKey           String
+  // Kirjaus, johon rivi on kirjattu. SetNull: kirjauksen poisto palauttaa
+  // rivin kirjaamattomaksi.
+  journalEntryId      String?       @unique
+  journalEntry        JournalEntry? @relation(fields: [journalEntryId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  // Tiliotteen rivit järjestyksessä; saman pankkitilin aiemmat rivit
+  // tuplatarkistuksessa.
+  @@index([bankStatementId, position])
+  @@index([companyId, dedupeKey])
 }
 
 model JournalEntry {
@@ -354,6 +398,8 @@ model JournalEntry {
   // ei katoa niiden alta.
   bankStatementId String?
   bankStatement   BankStatement? @relation(fields: [bankStatementId], references: [id], onDelete: Restrict)
+  // Tiliotteen tapahtuma, josta kirjaus on tehty, jos sellainen on.
+  bankStatementLine BankStatementLine?
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

@@ -41,10 +41,16 @@ const createEntrySchema = z.object({
   automaticVat: z.boolean().default(true),
   // The bank statement the entry is booked from; given only when creating.
   bankStatementId: z.string().uuid().optional(),
+  // The statement transaction the entry books; given only when creating.
+  bankStatementLineId: z.string().uuid().optional(),
   lines: z.array(lineSchema).min(2).max(100),
 });
 
-const updateEntrySchema = createEntrySchema.omit({ voucherType: true, bankStatementId: true });
+const updateEntrySchema = createEntrySchema.omit({
+  voucherType: true,
+  bankStatementId: true,
+  bankStatementLineId: true,
+});
 
 const listQuerySchema = z.object({
   from: dateOnlySchema.optional(),

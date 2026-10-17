@@ -34,6 +34,10 @@ export interface CreateJournalEntryInput {
   // The bank statement the entry is booked from, if any (see
   // bank-statement.service.ts). Must be the company's own.
   bankStatementId?: string | undefined;
+  // The statement transaction the entry books (see
+  // bank-statement-line.service.ts). It must be unbooked, and on the statement
+  // given above; the entry is booked from its statement when none is given.
+  bankStatementLineId?: string | undefined;
   lines: JournalEntryLineInput[];
 }
 
@@ -55,10 +59,11 @@ function vatLinesOf(entered: JournalEntryLineInput[], vat: VatHandling) {
 
 // voucherType is deliberately not updatable: the voucher number belongs to the
 // type's numbering series, and moving an entry between series would corrupt it.
-// Nor is bankStatementId: an entry stays with the statement it was booked from.
+// Nor are bankStatementId and bankStatementLineId: an entry stays with the
+// statement and the transaction it was booked from.
 export type UpdateJournalEntryInput = Omit<
   CreateJournalEntryInput,
-  'voucherType' | 'bankStatementId'
+  'voucherType' | 'bankStatementId' | 'bankStatementLineId'
 >;
 
 export interface ListJournalEntriesFilter {
@@ -133,6 +138,26 @@ async function assertBankStatementInCompany(
   if (found === 0) {
     throw AppError.badRequest('Bank statement does not exist in this company');
   }
+}
+
+// The statement transaction an entry is to book: the company's, on the
+// entry's statement, and not booked yet. Returns the statement it is on.
+async function assertLineBookable(
+  tx: Prisma.TransactionClient,
+  companyId: string,
+  lineId: string,
+  bankStatementId: string | undefined,
+): Promise<string> {
+  const line = await tx.bankStatementLine.findFirst({
+    where: { id: lineId, companyId },
+    select: { bankStatementId: true, journalEntryId: true },
+  });
+  if (!line) throw AppError.badRequest('Bank statement transaction does not exist in this company');
+  if (bankStatementId && line.bankStatementId !== bankStatementId) {
+    throw AppError.badRequest('The transaction is not on this bank statement');
+  }
+  if (line.journalEntryId) throw AppError.conflict('The transaction is already booked');
+  return line.bankStatementId;
 }
 
 // A company that is not VAT-registered books no VAT at all, so none of its
@@ -244,13 +269,21 @@ export const journalEntryService = {
         ...input.lines.map((l) => l.accountId),
       ]);
       await assertCostCentersInCompany(tx, companyId, input.lines);
-      if (input.bankStatementId) {
-        await assertBankStatementInCompany(tx, companyId, input.bankStatementId);
+      let bankStatementId = input.bankStatementId;
+      if (input.bankStatementLineId) {
+        bankStatementId = await assertLineBookable(
+          tx,
+          companyId,
+          input.bankStatementLineId,
+          bankStatementId,
+        );
+      } else if (bankStatementId) {
+        await assertBankStatementInCompany(tx, companyId, bankStatementId);
       }
       await assertVatAllowed(tx, companyId, input.lines);
       const lines = await buildStoredLines(tx, companyId, input.lines, vat);
       const voucherNumber = await allocateVoucherNumber(tx, companyId, input.voucherType);
-      return tx.journalEntry.create({
+      const entry = await tx.journalEntry.create({
         data: {
           companyId,
           createdById: userId,
@@ -259,11 +292,21 @@ export const journalEntryService = {
           date,
           description: input.description,
           accountId: input.accountId,
-          bankStatementId: input.bankStatementId ?? null,
+          bankStatementId: bankStatementId ?? null,
           lines: { create: lines },
         },
         include: withLines,
       });
+      if (input.bankStatementLineId) {
+        // Only while still unbooked: of two bookings of the same transaction
+        // at once, the second finds it taken and is rolled back.
+        const linked = await tx.bankStatementLine.updateMany({
+          where: { id: input.bankStatementLineId, journalEntryId: null },
+          data: { journalEntryId: entry.id },
+        });
+        if (linked.count !== 1) throw AppError.conflict('The transaction is already booked');
+      }
+      return entry;
     });
   },
 
