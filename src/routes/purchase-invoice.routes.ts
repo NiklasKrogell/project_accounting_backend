@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { purchaseInvoiceController } from '../controllers/purchase-invoice.controller';
 import { roleAtLeast } from '../middleware/requireRole';
-import { uploadSingleFile } from '../middleware/uploadSingleFile';
+import { uploadSingleFile, uploadSingleFileWithJson } from '../middleware/uploadSingleFile';
 import { asyncHandler } from '../lib/asyncHandler';
 
 // Mounted on the gated router (requireAuth + requireActiveSubscription).
@@ -9,11 +9,17 @@ import { asyncHandler } from '../lib/asyncHandler';
 // enter, change and delete them and move them between statuses, approving
 // (booking) included. Whether an approval may be booked on its entry date is
 // up to the fiscal guards. The role gate comes before the upload is read, as
-// for the files.
+// for the files. A new invoice may come with its PDF, as multipart (see the
+// controller's create); a JSON body goes past the parser untouched.
 export const purchaseInvoiceRoutes = Router();
 
 purchaseInvoiceRoutes.get('/', roleAtLeast('VIEWER'), asyncHandler(purchaseInvoiceController.list));
-purchaseInvoiceRoutes.post('/', roleAtLeast('LEDGER'), asyncHandler(purchaseInvoiceController.create));
+purchaseInvoiceRoutes.post(
+  '/',
+  roleAtLeast('LEDGER'),
+  uploadSingleFileWithJson,
+  asyncHandler(purchaseInvoiceController.create),
+);
 purchaseInvoiceRoutes.get('/:id', roleAtLeast('VIEWER'), asyncHandler(purchaseInvoiceController.get));
 purchaseInvoiceRoutes.put('/:id', roleAtLeast('LEDGER'), asyncHandler(purchaseInvoiceController.update));
 purchaseInvoiceRoutes.delete(

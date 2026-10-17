@@ -3,6 +3,8 @@ import request from 'supertest';
 import { createApp } from '../../src/app';
 import { prisma } from '../../src/lib/prisma';
 import { parseDateOnly } from '../../src/lib/dateOnly';
+import { invoiceTotals } from '../../src/lib/purchaseInvoice';
+import { splitVat, type VatBasis } from '../../src/lib/vat';
 import { accountingPeriodService } from '../../src/services/accounting-period.service';
 import { fiscalYearService } from '../../src/services/fiscal-year.service';
 import {
@@ -12,7 +14,7 @@ import {
   createSupplier,
   createTestContext,
 } from './helpers';
-import { resetTestBucket } from './testStorage';
+import { listObjectKeys, resetTestBucket } from './testStorage';
 
 // The file part of this suite runs against the S3Mock of docker-compose.yml,
 // like files.test.ts.
@@ -38,10 +40,21 @@ let novemberPeriodId: string;
 
 let invoiceCounter = 0;
 
-// A new invoice of 100,00 + 25,5 % VAT, entered net, booked in March.
+// What rows entered on a basis come to with their VAT, as the invoice states it.
+function rowsTotal(lines: { amount: number; vatRate: number }[], basis: VatBasis = 'net'): number {
+  return invoiceTotals(
+    lines.map((line) => {
+      const { net, vat } = splitVat(line, basis);
+      return { amount: net, vatAmount: vat };
+    }),
+  ).gross;
+}
+
+// A new invoice of 100,00 + 25,5 % VAT, entered net, booked in March. Its
+// total is what its rows come to unless one is given.
 function invoiceBody(overrides: Record<string, unknown> = {}) {
   invoiceCounter += 1;
-  return {
+  const body = {
     supplierId,
     invoiceNumber: `INV-${invoiceCounter}`,
     invoiceDate: '2025-03-10',
@@ -49,7 +62,8 @@ function invoiceBody(overrides: Record<string, unknown> = {}) {
     dueDate: '2025-03-24',
     lines: [{ accountId: expenseAccountId, amount: 100, vatRate: 25.5, description: 'Paperia' }],
     ...overrides,
-  };
+  } as Record<string, unknown> & { lines: { amount: number; vatRate: number }[]; vatBasis?: VatBasis };
+  return { totalAmount: rowsTotal(body.lines, body.vatBasis), ...body };
 }
 
 const postInvoice = (body: Record<string, unknown>, as = cookie) =>
@@ -68,6 +82,17 @@ const attachFile = (id: string, as = cookie) =>
     .set('Cookie', as)
     .attach('file', PDF, { filename: 'lasku.pdf', contentType: 'application/pdf' });
 const getEntry = (id: string) => request(app).get(`/api/journal-entries/${id}`).set('Cookie', cookie);
+// A new invoice sent with its PDF: multipart, the body as JSON in "invoice".
+const postInvoiceWithFile = (
+  body: Record<string, unknown> | string,
+  as = cookie,
+  content: Buffer = PDF,
+) =>
+  request(app)
+    .post('/api/purchase-invoices')
+    .set('Cookie', as)
+    .field('invoice', typeof body === 'string' ? body : JSON.stringify(body))
+    .attach('file', content, { filename: 'lasku.pdf', contentType: 'application/pdf' });
 
 const APPROVE = { status: 'APPROVED' };
 
@@ -153,6 +178,7 @@ describe('purchase invoices CRUD', () => {
       description: 'Toimistotarvikkeet maaliskuu',
       vatBasis: 'net',
       status: 'NEW',
+      totalAmount: 165.5,
       netTotal: 140,
       vatTotal: 25.5,
       grossTotal: 165.5,
@@ -182,8 +208,12 @@ describe('purchase invoices CRUD', () => {
   });
 
   it('saves a new invoice without rows', async () => {
-    const invoice = await newInvoice({ lines: [] });
-    expect((await getInvoice(invoice.id)).body.data).toMatchObject({ lines: [], grossTotal: 0 });
+    const invoice = await newInvoice({ lines: [], totalAmount: 49.9 });
+    expect((await getInvoice(invoice.id)).body.data).toMatchObject({
+      lines: [],
+      totalAmount: 49.9,
+      grossTotal: 0,
+    });
   });
 
   it('replaces a new invoice wholesale', async () => {
@@ -197,7 +227,11 @@ describe('purchase invoices CRUD', () => {
       }),
     );
     expect(res.status).toBe(200);
-    expect(res.body.data).toMatchObject({ supplierId: otherSupplierId, grossTotal: 11.35 });
+    expect(res.body.data).toMatchObject({
+      supplierId: otherSupplierId,
+      totalAmount: 11.35,
+      grossTotal: 11.35,
+    });
     expect(res.body.data.lines).toHaveLength(1);
   });
 
@@ -222,11 +256,198 @@ describe('purchase invoices CRUD', () => {
     expect(ids(all)).toEqual([early.id, rejected.id, late.id]);
     expect(all.body.meta).toEqual({ total: 3, take: 100, skip: 0 });
     // A list row counts the files; the invoice read on its own lists them.
-    expect(all.body.data[0]).toMatchObject({ fileCount: 0, grossTotal: 10 });
+    expect(all.body.data[0]).toMatchObject({ fileCount: 0, totalAmount: 10, grossTotal: 10 });
     expect(all.body.data[0].files).toBeUndefined();
     expect(ids(await list({ status: 'NEW' }))).toEqual([early.id, late.id]);
     expect(ids(await list({ supplierId: a.id }))).toEqual([rejected.id, late.id]);
     expect(ids(await list({ dueTo: '2025-03-25' }))).toEqual([early.id, rejected.id]);
+  });
+
+  it('lists by several statuses and by invoice and due date ranges', async () => {
+    // A supplier of its own keeps the other tests' invoices out of the list.
+    const supplier = await createSupplier(companyId, 'Rajattava Oy');
+    const post = (fields: Record<string, unknown>) =>
+      newInvoice({ supplierId: supplier.id, ...fields });
+    const january = await post({ invoiceDate: '2025-01-10', dueDate: '2025-01-24' });
+    const march = await post({ invoiceDate: '2025-03-10', dueDate: '2025-04-09' });
+    const april = await post({ invoiceDate: '2025-04-01', dueDate: '2025-04-15' });
+    expect((await setStatus(march.id, APPROVE)).status).toBe(200);
+    await setStatus(april.id, { status: 'REJECTED' });
+
+    const list = (query: Record<string, string>) =>
+      request(app)
+        .get('/api/purchase-invoices')
+        .query({ supplierId: supplier.id, ...query })
+        .set('Cookie', cookie);
+    const ids = (res: request.Response) => res.body.data.map((i: { id: string }) => i.id);
+
+    expect(ids(await list({ status: 'NEW,APPROVED' }))).toEqual([january.id, march.id]);
+    expect(ids(await list({ status: 'REJECTED' }))).toEqual([april.id]);
+    // Both ends are inclusive.
+    expect(ids(await list({ invoiceDateFrom: '2025-03-10' }))).toEqual([march.id, april.id]);
+    expect(
+      ids(await list({ invoiceDateFrom: '2025-01-10', invoiceDateTo: '2025-03-10' })),
+    ).toEqual([january.id, march.id]);
+    expect(ids(await list({ dueFrom: '2025-04-09', dueTo: '2025-04-15' }))).toEqual([
+      march.id,
+      april.id,
+    ]);
+    expect(ids(await list({ dueFrom: '2025-04-10', status: 'NEW' }))).toEqual([]);
+  });
+
+  it('searches by invoice number, supplier, payment reference and amount', async () => {
+    const ctx = await createTestContext('ADMIN');
+    const account = await createAccount(ctx.company.id, 'Kulut');
+    const paper = await createSupplier(ctx.company.id, 'Paperi Oy');
+    const cafe = await createSupplier(ctx.company.id, 'Kahvila Oy');
+    const post = async (fields: Record<string, unknown>) => {
+      const res = await postInvoice(invoiceBody(fields), ctx.cookie);
+      expect(res.status).toBe(201);
+      return res.body.data.id as string;
+    };
+    const paperInvoice = await post({
+      supplierId: paper.id,
+      invoiceNumber: 'A-1001',
+      paymentReference: '12344',
+      lines: [{ accountId: account.id, amount: 100, vatRate: 25.5 }],
+    });
+    const cafeInvoice = await post({
+      supplierId: cafe.id,
+      invoiceNumber: 'B-77',
+      paymentReference: '55550',
+      lines: [{ accountId: account.id, amount: 1234.56, vatRate: 0 }],
+    });
+    const numberedInvoice = await post({
+      supplierId: cafe.id,
+      invoiceNumber: '1001',
+      lines: [{ accountId: account.id, amount: 10, vatRate: 0 }],
+    });
+
+    const search = async (text: string) => {
+      const res = await request(app)
+        .get('/api/purchase-invoices')
+        .query({ search: text, sort: 'invoiceNumber' })
+        .set('Cookie', ctx.cookie);
+      expect(res.status).toBe(200);
+      return res.body.data.map((i: { id: string }) => i.id);
+    };
+
+    // The invoice number and the supplier's name, in any case.
+    expect(await search('a-10')).toEqual([paperInvoice]);
+    expect(await search('1001')).toEqual([numberedInvoice, paperInvoice]);
+    expect(await search('KAHVILA')).toEqual([numberedInvoice, cafeInvoice]);
+    // The reference as typed, spaces and all.
+    expect(await search('12 344')).toEqual([paperInvoice]);
+    expect(await search('5555')).toEqual([cafeInvoice]);
+    // The gross total, however the amount is written.
+    expect(await search('125,50')).toEqual([paperInvoice]);
+    expect(await search('125.5')).toEqual([paperInvoice]);
+    expect(await search('1 234,56 €')).toEqual([cafeInvoice]);
+    expect(await search('125,51')).toEqual([]);
+    // Blank is no search.
+    expect(await search('  ')).toHaveLength(3);
+
+    // The total searched is the one typed, not what the rows come to.
+    const res = await putInvoice(
+      paperInvoice,
+      invoiceBody({
+        supplierId: paper.id,
+        invoiceNumber: 'A-1001',
+        totalAmount: 80,
+        lines: [{ accountId: account.id, amount: 100, vatRate: 25.5 }],
+      }),
+      ctx.cookie,
+    );
+    expect(res.status).toBe(200);
+    expect(await search('125,50')).toEqual([]);
+    expect(await search('80')).toEqual([paperInvoice]);
+  });
+
+  it('sorts by any column either way, ties in the order they were entered', async () => {
+    const ctx = await createTestContext('ADMIN');
+    const account = await createAccount(ctx.company.id, 'Kulut');
+    const supplier = async (name: string) => (await createSupplier(ctx.company.id, name)).id;
+    const post = async (fields: Record<string, unknown>, amount: number) => {
+      const res = await postInvoice(
+        invoiceBody({ lines: [{ accountId: account.id, amount, vatRate: 0 }], ...fields }),
+        ctx.cookie,
+      );
+      expect(res.status).toBe(201);
+      return res.body.data.id as string;
+    };
+    const x = await post(
+      {
+        supplierId: await supplier('Beta Oy'),
+        invoiceNumber: 'B',
+        paymentReference: '55550',
+        invoiceDate: '2025-03-02',
+        dueDate: '2025-03-20',
+      },
+      30,
+    );
+    const y = await post(
+      {
+        supplierId: await supplier('Alfa Oy'),
+        invoiceNumber: 'C',
+        invoiceDate: '2025-03-01',
+        dueDate: '2025-03-30',
+      },
+      10,
+    );
+    const z = await post(
+      {
+        supplierId: await supplier('Gamma Oy'),
+        invoiceNumber: 'A',
+        paymentReference: '12344',
+        invoiceDate: '2025-03-03',
+        dueDate: '2025-03-10',
+      },
+      20,
+    );
+    await setStatus(y, { status: 'REJECTED' }, ctx.cookie);
+
+    const sorted = async (sort: string, order: 'asc' | 'desc' = 'asc') => {
+      const res = await request(app)
+        .get('/api/purchase-invoices')
+        .query({ sort, order })
+        .set('Cookie', ctx.cookie);
+      expect(res.status).toBe(200);
+      return res.body.data.map((i: { id: string }) => i.id);
+    };
+
+    expect(await sorted('invoiceNumber')).toEqual([z, x, y]);
+    expect(await sorted('invoiceNumber', 'desc')).toEqual([y, x, z]);
+    expect(await sorted('supplier')).toEqual([y, x, z]);
+    expect(await sorted('supplier', 'desc')).toEqual([z, x, y]);
+    // Without a reference last, either way.
+    expect(await sorted('paymentReference')).toEqual([z, x, y]);
+    expect(await sorted('paymentReference', 'desc')).toEqual([x, z, y]);
+    expect(await sorted('invoiceDate')).toEqual([y, x, z]);
+    expect(await sorted('invoiceDate', 'desc')).toEqual([z, x, y]);
+    expect(await sorted('dueDate')).toEqual([z, x, y]);
+    expect(await sorted('dueDate', 'desc')).toEqual([y, x, z]);
+    expect(await sorted('totalAmount')).toEqual([y, z, x]);
+    expect(await sorted('totalAmount', 'desc')).toEqual([x, z, y]);
+    // In the order of the workflow; the two new ones as they were entered.
+    expect(await sorted('status')).toEqual([x, z, y]);
+    expect(await sorted('status', 'desc')).toEqual([y, x, z]);
+
+    // Paging follows the sort.
+    const page = await request(app)
+      .get('/api/purchase-invoices')
+      .query({ sort: 'totalAmount', order: 'desc', take: 2, skip: 1 })
+      .set('Cookie', ctx.cookie);
+    expect(page.body.data.map((i: { id: string }) => i.id)).toEqual([z, y]);
+    expect(page.body.meta).toEqual({ total: 3, take: 2, skip: 1 });
+  });
+
+  it('refuses an unknown status, sort column or order in the list query with 400', async () => {
+    const list = (query: Record<string, string>) =>
+      request(app).get('/api/purchase-invoices').query(query).set('Cookie', cookie);
+    expect((await list({ status: 'NEW,OPEN' })).status).toBe(400);
+    expect((await list({ status: '' })).status).toBe(400);
+    expect((await list({ sort: 'description' })).status).toBe(400);
+    expect((await list({ sort: 'dueDate', order: 'up' })).status).toBe(400);
   });
 
   it('deletes a new or a rejected invoice', async () => {
@@ -241,6 +462,15 @@ describe('purchase invoices CRUD', () => {
 });
 
 describe('purchase invoice validation', () => {
+  it('refuses a missing, zero or negative total with 400', async () => {
+    const { totalAmount: _omitted, ...withoutTotal } = invoiceBody();
+    expect((await postInvoice(withoutTotal)).status).toBe(400);
+    expect((await postInvoice(invoiceBody({ totalAmount: 0 }))).status).toBe(400);
+    expect((await postInvoice(invoiceBody({ totalAmount: -125.5 }))).status).toBe(400);
+    // Less than half a cent is no total at all.
+    expect((await postInvoice(invoiceBody({ totalAmount: 0.004 }))).status).toBe(400);
+  });
+
   it('refuses a due date before the invoice date with 400', async () => {
     const res = await postInvoice(invoiceBody({ invoiceDate: '2025-03-10', dueDate: '2025-03-09' }));
     expect(res.status).toBe(400);
@@ -388,10 +618,24 @@ describe('approving a purchase invoice', () => {
   });
 
   it('refuses an invoice without rows with 400 and leaves it new', async () => {
-    const invoice = await newInvoice({ lines: [] });
+    const invoice = await newInvoice({ lines: [], totalAmount: 125.5 });
     const res = await setStatus(invoice.id, APPROVE);
     expect(res.status).toBe(400);
     expect((await getInvoice(invoice.id)).body.data.status).toBe('NEW');
+  });
+
+  it("refuses rows that don't come to the invoice's total with 400 and leaves it new", async () => {
+    // 100,00 + 25,5 % VAT is 125,50.
+    const invoice = await newInvoice({ totalAmount: 125.49 });
+    const res = await setStatus(invoice.id, APPROVE);
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toBe(
+      "The rows come to 125.50, not to the invoice's total of 125.49",
+    );
+    expect((await getInvoice(invoice.id)).body.data).toMatchObject({
+      status: 'NEW',
+      journalEntryId: null,
+    });
   });
 
   it('refuses with 400 while no trade payables account is set', async () => {
@@ -614,6 +858,78 @@ describe('purchase invoice files', () => {
     const file = await getFile(fileId);
     expect(file.status).toBe(200);
     expect(file.body.data).toMatchObject({ purchaseInvoiceId: null, journalEntryId: null });
+  });
+
+  it('creates a new invoice together with its PDF', async () => {
+    const res = await postInvoiceWithFile(invoiceBody());
+    expect(res.status).toBe(201);
+    expect(res.body.data).toMatchObject({ status: 'NEW', totalAmount: 125.5, fileCount: 1 });
+    const [file] = res.body.data.files;
+    expect(res.body.data.files).toHaveLength(1);
+    expect(file).toMatchObject({
+      originalName: 'lasku.pdf',
+      mimeType: 'application/pdf',
+      purchaseInvoiceId: res.body.data.id,
+      journalEntryId: null,
+    });
+    expect(await listObjectKeys(`companies/${companyId}/`)).toContain(
+      `companies/${companyId}/${file.id}`,
+    );
+    // The bytes are read through the file API.
+    const content = await request(app).get(`/api/files/${file.id}/content`).set('Cookie', cookie);
+    expect(content.status).toBe(200);
+  });
+
+  it('takes the invoice as multipart without a file, too', async () => {
+    const res = await request(app)
+      .post('/api/purchase-invoices')
+      .set('Cookie', cookie)
+      .field('invoice', JSON.stringify(invoiceBody()));
+    expect(res.status).toBe(201);
+    expect(res.body.data.files).toEqual([]);
+  });
+
+  it('stores nothing when an invoice sent with its PDF is refused', async () => {
+    const objects = await listObjectKeys(`companies/${companyId}/`);
+    const files = await prisma.storedFile.count({ where: { companyId } });
+    const invoices = await prisma.purchaseInvoice.count({ where: { companyId } });
+    const existing = await newInvoice();
+    const foreignSupplier = await createSupplier(other.company.id, 'Vieras Oy');
+    const viewer = await addMember(companyId, 'VIEWER');
+
+    const badJson = await postInvoiceWithFile('{"supplierId":');
+    expect(badJson.status).toBe(400);
+    expect(badJson.body.error.message).toBe('The form field "invoice" is not valid JSON');
+    const noInvoice = await request(app)
+      .post('/api/purchase-invoices')
+      .set('Cookie', cookie)
+      .attach('file', PDF, { filename: 'lasku.pdf', contentType: 'application/pdf' });
+    expect(noInvoice.status).toBe(400);
+    expect((await postInvoiceWithFile(invoiceBody({ dueDate: '2025-03-01' }))).status).toBe(400);
+    expect((await postInvoiceWithFile(invoiceBody({ supplierId: foreignSupplier.id }))).status).toBe(
+      400,
+    );
+    expect(
+      (await postInvoiceWithFile(invoiceBody({ invoiceNumber: existing.invoiceNumber }))).status,
+    ).toBe(409);
+    expect((await postInvoiceWithFile(invoiceBody(), cookie, Buffer.from('ei pdf'))).status).toBe(415);
+    expect((await postInvoiceWithFile(invoiceBody(), viewer.cookie)).status).toBe(403);
+
+    expect(await listObjectKeys(`companies/${companyId}/`)).toEqual(objects);
+    expect(await prisma.storedFile.count({ where: { companyId } })).toBe(files);
+    // Only the invoice made for the duplicate number.
+    expect(await prisma.purchaseInvoice.count({ where: { companyId } })).toBe(invoices + 1);
+  });
+
+  it('keeps one of two invoices with the same number sent with PDFs at once, and its PDF only', async () => {
+    const objects = await listObjectKeys(`companies/${companyId}/`);
+    const body = invoiceBody();
+    const results = await Promise.all([postInvoiceWithFile(body), postInvoiceWithFile(body)]);
+    expect(results.map((r) => r.status).sort()).toEqual([201, 409]);
+
+    const created = results.find((r) => r.status === 201)!.body.data;
+    const added = (await listObjectKeys(`companies/${companyId}/`)).filter((k) => !objects.includes(k));
+    expect(added).toEqual([`companies/${companyId}/${created.files[0].id}`]);
   });
 
   it('lets a file of a new invoice be deleted through the file API', async () => {

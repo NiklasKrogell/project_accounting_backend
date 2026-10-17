@@ -10,3 +10,13 @@ export function toCents(amount: number): number {
 export function fromCents(cents: number): number {
   return cents / 100;
 }
+
+// A positive euro amount typed as text, in cents: '1 234,56', '1234.5', '99'
+// or '12,00 €'. Spaces (also the no-break ones Intl puts in a Finnish amount)
+// group thousands, a comma or a dot marks the cents. Null when the text is not
+// such an amount.
+export function centsFromText(text: string): number | null {
+  const compact = text.replace(/[\s  ]/g, '').replace(/€$/, '');
+  if (!/^\d+([.,]\d{1,2})?$/.test(compact)) return null;
+  return toCents(Number(compact.replace(',', '.')));
+}

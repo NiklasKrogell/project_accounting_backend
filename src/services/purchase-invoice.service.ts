@@ -2,7 +2,9 @@ import type { Prisma, PurchaseInvoiceStatus } from '../generated/prisma/client';
 import { prisma } from '../lib/prisma';
 import { AppError } from '../lib/AppError';
 import { normalizeToUtcDate } from '../lib/dateOnly';
-import { buildPurchaseEntry } from '../lib/purchaseInvoice';
+import { centsFromText, toCents } from '../lib/money';
+import { normalizePaymentReference } from '../lib/paymentReference';
+import { buildPurchaseEntry, invoiceTotals } from '../lib/purchaseInvoice';
 import { splitVat, type VatBasis } from '../lib/vat';
 import {
   assertAccountsInCompany,
@@ -39,6 +41,9 @@ export interface PurchaseInvoiceInput {
   invoiceDate: Date;
   entryDate: Date;
   dueDate: Date;
+  // The invoice's total including VAT, as typed from the invoice. The rows
+  // must come to it, to the cent, before the invoice can be approved.
+  totalAmount: number;
   iban: string | null;
   bic: string | null;
   description: string;
@@ -46,11 +51,40 @@ export interface PurchaseInvoiceInput {
   lines: PurchaseInvoiceLineInput[];
 }
 
+// The PDF (or image) of the invoice, when it is stored with the new invoice.
+export interface InvoiceFileInput {
+  content: Buffer;
+  // The name the client gave the file; cleaned up before it is stored.
+  originalName: string;
+}
+
+// The columns the list can be sorted by.
+export const PURCHASE_INVOICE_SORT_FIELDS = [
+  'invoiceNumber',
+  'supplier',
+  'paymentReference',
+  'invoiceDate',
+  'dueDate',
+  'totalAmount',
+  'status',
+] as const;
+export type PurchaseInvoiceSortField = (typeof PURCHASE_INVOICE_SORT_FIELDS)[number];
+
 export interface ListPurchaseInvoicesFilter {
-  status?: PurchaseInvoiceStatus | undefined;
+  // Any of these; all statuses when empty or left out.
+  statuses?: PurchaseInvoiceStatus[] | undefined;
   supplierId?: string | undefined;
-  // Only those due on or before this day.
+  // Both ends of each range are inclusive.
+  invoiceDateFrom?: Date | undefined;
+  invoiceDateTo?: Date | undefined;
+  dueFrom?: Date | undefined;
   dueTo?: Date | undefined;
+  // Matched against the invoice number, the supplier's name, the payment
+  // reference and the typed total (see searchConditions).
+  search?: string | undefined;
+  // By due date, earliest first, when left out.
+  sort?: PurchaseInvoiceSortField | undefined;
+  order?: Prisma.SortOrder | undefined;
   take: number;
   skip: number;
 }
@@ -61,11 +95,7 @@ export type PurchaseInvoiceStatusChange =
   | { status: 'PAID'; paymentDate: Date }
   | { status: 'NEW' };
 
-export interface AttachFileInput {
-  content: Buffer;
-  // The name the client gave the file; cleaned up before it is stored.
-  originalName: string;
-}
+export type AttachFileInput = InvoiceFileInput;
 
 // What a list row shows: the rows (for the totals), not the files themselves.
 const withSummary = {
@@ -177,6 +207,7 @@ function invoiceColumns(input: PurchaseInvoiceInput) {
     invoiceDate: normalizeToUtcDate(input.invoiceDate),
     entryDate: normalizeToUtcDate(input.entryDate),
     dueDate: normalizeToUtcDate(input.dueDate),
+    totalAmount: input.totalAmount,
     iban: input.iban,
     bic: input.bic,
     description: input.description,
@@ -201,6 +232,45 @@ function storedLines(companyId: string, input: PurchaseInvoiceInput) {
   });
 }
 
+// The search text matches an invoice whose number or supplier's name contains
+// it, whose payment reference contains it once written the way references are
+// stored, or, when it reads as an amount, whose typed total is that amount.
+function searchConditions(search: string): Prisma.PurchaseInvoiceWhereInput[] {
+  const conditions: Prisma.PurchaseInvoiceWhereInput[] = [
+    { invoiceNumber: { contains: search, mode: 'insensitive' } },
+    { supplier: { name: { contains: search, mode: 'insensitive' } } },
+  ];
+  const reference = normalizePaymentReference(search);
+  if (reference) conditions.push({ paymentReference: { contains: reference } });
+  const cents = centsFromText(search);
+  // Within half a cent either way: the totals are floats.
+  if (cents !== null) {
+    conditions.push({ totalAmount: { gte: (cents - 0.5) / 100, lt: (cents + 0.5) / 100 } });
+  }
+  return conditions;
+}
+
+// The invoice's dates are date-only columns, so both ends compare as days.
+function dayRange(from: Date | undefined, to: Date | undefined): Prisma.DateTimeFilter {
+  return { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) };
+}
+
+function sortOrder(
+  field: PurchaseInvoiceSortField,
+  order: Prisma.SortOrder,
+): Prisma.PurchaseInvoiceOrderByWithRelationInput {
+  switch (field) {
+    case 'supplier':
+      return { supplier: { name: order } };
+    case 'paymentReference':
+      // Invoices without a reference come last either way.
+      return { paymentReference: { sort: order, nulls: 'last' } };
+    default:
+      // The statuses sort in the enum's order: NEW, APPROVED, PAID, REJECTED.
+      return { [field]: order };
+  }
+}
+
 // Books the invoice: a PURCHASE entry on its entry date, debiting its rows and
 // crediting its gross total to the trade payables account. The fiscal guard
 // runs inside, in this transaction. The invoice's files become documents of
@@ -217,6 +287,12 @@ async function bookInvoice(
   });
   if (invoice.lines.length === 0) {
     throw AppError.badRequest('A purchase invoice needs at least one row to be approved');
+  }
+  const rowsTotal = invoiceTotals(invoice.lines).gross;
+  if (toCents(rowsTotal) !== toCents(invoice.totalAmount)) {
+    throw AppError.badRequest(
+      `The rows come to ${rowsTotal.toFixed(2)}, not to the invoice's total of ${invoice.totalAmount.toFixed(2)}`,
+    );
   }
   const chart = await tx.chartOfAccounts.findUnique({
     where: { companyId },
@@ -252,11 +328,20 @@ async function bookInvoice(
 export const purchaseInvoiceService = {
   // A new invoice may have no rows yet: the coding can be done later, but an
   // invoice is approved only with some.
-  async create(companyId: string, userId: string, input: PurchaseInvoiceInput) {
-    const { id } = await prisma.$transaction(async (tx) => {
+  //
+  // With a file (the invoice's PDF), the file is stored with the invoice, the
+  // way a bank statement's is (see storeFile): the invoice and its file are
+  // both there or neither is.
+  async create(
+    companyId: string,
+    userId: string,
+    input: PurchaseInvoiceInput,
+    file?: InvoiceFileInput,
+  ) {
+    const insert = async (tx: Prisma.TransactionClient) => {
       await assertReferencesValid(tx, companyId, input);
       await assertInvoiceNumberAvailable(tx, companyId, input);
-      return tx.purchaseInvoice.create({
+      const { id } = await tx.purchaseInvoice.create({
         data: {
           companyId,
           createdById: userId,
@@ -265,20 +350,42 @@ export const purchaseInvoiceService = {
         },
         select: { id: true },
       });
+      return id;
+    };
+    if (!file) return readInvoice(await prisma.$transaction(insert));
+
+    // Checked before the upload too, so nothing is stored only to be refused.
+    await assertReferencesValid(prisma, companyId, input);
+    await assertInvoiceNumberAvailable(prisma, companyId, input);
+    const id = await storeFile(companyId, userId, file, async (tx, stored) => {
+      const invoiceId = await insert(tx);
+      await tx.storedFile.update({ where: { id: stored.id }, data: { purchaseInvoiceId: invoiceId } });
+      return invoiceId;
     });
     return readInvoice(id);
   },
 
   async list(companyId: string, filter: ListPurchaseInvoicesFilter) {
     const where: Prisma.PurchaseInvoiceWhereInput = { companyId };
-    if (filter.status) where.status = filter.status;
+    if (filter.statuses?.length) where.status = { in: filter.statuses };
     if (filter.supplierId) where.supplierId = filter.supplierId;
-    if (filter.dueTo) where.dueDate = { lte: filter.dueTo };
+    if (filter.invoiceDateFrom || filter.invoiceDateTo) {
+      where.invoiceDate = dayRange(filter.invoiceDateFrom, filter.invoiceDateTo);
+    }
+    if (filter.dueFrom || filter.dueTo) where.dueDate = dayRange(filter.dueFrom, filter.dueTo);
+    if (filter.search) where.OR = searchConditions(filter.search);
+
+    // Created first, then by id: the same invoices on the same page each time.
+    const orderBy: Prisma.PurchaseInvoiceOrderByWithRelationInput[] = [
+      sortOrder(filter.sort ?? 'dueDate', filter.order ?? 'asc'),
+      { createdAt: 'asc' },
+      { id: 'asc' },
+    ];
 
     const [invoices, total] = await prisma.$transaction([
       prisma.purchaseInvoice.findMany({
         where,
-        orderBy: [{ dueDate: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+        orderBy,
         take: filter.take,
         skip: filter.skip,
         include: withSummary,

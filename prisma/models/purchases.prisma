@@ -82,6 +82,12 @@ model PurchaseInvoice {
   // käyttöliittymä voi näyttää rivit syötetyssä muodossa.
   vatBasis String @default("net")
 
+  // Laskun verollinen loppusumma sellaisena kuin se luettiin laskulta.
+  // Laskulista näyttää, lajittelee ja hakee sen mukaan; hyväksyntä vaatii, että
+  // rivien verollinen summa (invoiceTotals, src/lib/purchaseInvoice.ts) on
+  // sentilleen sama.
+  totalAmount Float
+
   status PurchaseInvoiceStatus @default(NEW)
   lines  PurchaseInvoiceLine[]
   // Laskun liitteet. Hyväksyttäessä ne liitetään myös ostokirjaukseen.

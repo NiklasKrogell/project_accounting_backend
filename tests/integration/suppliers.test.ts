@@ -208,6 +208,7 @@ describe('supplier rules', () => {
         invoiceDate: parseDateOnly('2025-01-01'),
         entryDate: parseDateOnly('2025-01-01'),
         dueDate: parseDateOnly('2025-01-15'),
+        totalAmount: 100,
         createdById: userId,
       },
     });

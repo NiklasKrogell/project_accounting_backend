@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { z } from 'zod';
 import type { StoredFile } from '../generated/prisma/client';
 import {
+  PURCHASE_INVOICE_SORT_FIELDS,
   purchaseInvoiceService,
   type PurchaseInvoiceSummary,
 } from '../services/purchase-invoice.service';
@@ -16,6 +17,7 @@ import {
 } from '../lib/apiSchemas';
 import { formatDateOnly } from '../lib/dateOnly';
 import { isValidPaymentReference, normalizePaymentReference } from '../lib/paymentReference';
+import { fromCents, toCents } from '../lib/money';
 import { invoiceTotals } from '../lib/purchaseInvoice';
 
 const statusSchema = z.enum(['NEW', 'APPROVED', 'PAID', 'REJECTED']);
@@ -50,6 +52,11 @@ const invoiceBodySchema = z
     invoiceDate: dateOnlySchema,
     entryDate: dateOnlySchema,
     dueDate: dateOnlySchema,
+    // The total including VAT as typed from the invoice, to the cent.
+    totalAmount: z
+      .number()
+      .transform((v) => fromCents(toCents(v)))
+      .refine((v) => v > 0, 'The total must be positive'),
     iban: optionalSchema(ibanSchema),
     bic: optionalSchema(bicSchema),
     description: z.string().trim().max(500).default(''),
@@ -71,15 +78,46 @@ const statusChangeSchema = z.discriminatedUnion('status', [
   z.object({ status: z.literal('NEW') }).strict(),
 ]);
 
+// One status or several, comma-separated: ?status=NEW,APPROVED.
+const statusListSchema = z
+  .string()
+  .transform((value) => value.split(',').map((s) => s.trim()))
+  .pipe(z.array(statusSchema).min(1));
+
 const listQuerySchema = z.object({
-  status: statusSchema.optional(),
+  status: statusListSchema.optional(),
   supplierId: z.string().uuid().optional(),
+  invoiceDateFrom: dateOnlySchema.optional(),
+  invoiceDateTo: dateOnlySchema.optional(),
+  dueFrom: dateOnlySchema.optional(),
   dueTo: dateOnlySchema.optional(),
+  // Blank is no search at all.
+  search: z
+    .string()
+    .trim()
+    .max(100)
+    .optional()
+    .transform((v) => v || undefined),
+  sort: z.enum(PURCHASE_INVOICE_SORT_FIELDS).optional(),
+  order: z.enum(['asc', 'desc']).optional(),
   take: z.coerce.number().int().min(1).max(500).default(100),
   skip: z.coerce.number().int().min(0).default(0),
 });
 
 const dateOrNull = (d: Date | null) => (d ? formatDateOnly(d) : null);
+
+// A new invoice sent with its PDF is multipart: the file in the field "file",
+// the same body as for JSON in the field "invoice".
+function invoiceFromForm(value: unknown): unknown {
+  if (typeof value !== 'string') {
+    throw AppError.badRequest('The invoice is required, as JSON in the form field "invoice"');
+  }
+  try {
+    return JSON.parse(value);
+  } catch {
+    throw AppError.badRequest('The form field "invoice" is not valid JSON');
+  }
+}
 
 // The invoice with its totals and rows, and its files when read on its own (a
 // list row has only their count). The files' bytes are read through the file
@@ -95,11 +133,13 @@ function serializeInvoice(invoice: PurchaseInvoiceSummary & { files?: StoredFile
     invoiceDate: formatDateOnly(invoice.invoiceDate),
     entryDate: formatDateOnly(invoice.entryDate),
     dueDate: formatDateOnly(invoice.dueDate),
+    totalAmount: invoice.totalAmount,
     iban: invoice.iban,
     bic: invoice.bic,
     description: invoice.description,
     vatBasis: invoice.vatBasis,
     status: invoice.status,
+    // What the rows come to; approving needs grossTotal to equal totalAmount.
     netTotal: totals.net,
     vatTotal: totals.vat,
     grossTotal: totals.gross,
@@ -132,8 +172,11 @@ function serializeInvoice(invoice: PurchaseInvoiceSummary & { files?: StoredFile
 export const purchaseInvoiceController = {
   async list(req: Request, res: Response) {
     const companyId = req.auth!.membership!.companyId;
-    const query = listQuerySchema.parse(req.query);
-    const { invoices, total } = await purchaseInvoiceService.list(companyId, query);
+    const { status, ...query } = listQuerySchema.parse(req.query);
+    const { invoices, total } = await purchaseInvoiceService.list(companyId, {
+      ...query,
+      statuses: status,
+    });
     res.json({
       data: invoices.map(serializeInvoice),
       meta: { total, take: query.take, skip: query.skip },
@@ -142,8 +185,12 @@ export const purchaseInvoiceController = {
 
   async create(req: Request, res: Response) {
     const { membership, user } = req.auth!;
-    const input = invoiceBodySchema.parse(req.body);
-    const invoice = await purchaseInvoiceService.create(membership!.companyId, user.id, input);
+    const multipart = Boolean(req.is('multipart/form-data'));
+    const input = invoiceBodySchema.parse(multipart ? invoiceFromForm(req.body?.invoice) : req.body);
+    const file = req.file
+      ? { content: req.file.buffer, originalName: req.file.originalname }
+      : undefined;
+    const invoice = await purchaseInvoiceService.create(membership!.companyId, user.id, input, file);
     res.status(201).json({ data: serializeInvoice(invoice) });
   },
 
