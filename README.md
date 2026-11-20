@@ -2,7 +2,7 @@
 
 REST API for a multi-tenant accounting SaaS: double-entry bookkeeping, fiscal years and periods, chart of accounts, VAT, bank statements, purchase and sales invoices, and financial reports. Users can belong to several companies with a different role in each, and a company's books open only once its subscription is active.
 
-The web client lives in the sibling repo `project_accounting_ui`.
+The web client lives in the sibling repo [project_accounting_ui](https://github.com/NiklasKrogell/project_accounting_ui).
 
 ## Tech stack
 
